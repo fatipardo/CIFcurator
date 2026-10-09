@@ -98,12 +98,16 @@ def simplify_cif(oldfile, newfile, pdbformat):
         for ident in asym_id:
             asym_assembly_map[ident] = assembly_id_list[i]
 
+    # OCT2026: strip only a trailing pdbformat. re.sub(pdbformat, ...) treated ".cif" as a regex
+    # and removed every "?cif" anywhere in the path (e.g. /tmp/specific_bank -> /tmp/spic_bank)
+    newfile_stem = newfile[:-len(pdbformat)] if newfile.endswith(pdbformat) else newfile #OCT2026
+
     for assembly in assembly_id_list:
 
         if (len(assembly_id_list)==1):
-            newciffilename = str(re.sub(pdbformat, '', newfile))+"+00"
+            newciffilename = newfile_stem+"+00" #OCT2026
         else:
-            newciffilename = str(re.sub(pdbformat, '', newfile))+"+0"+str(assembly)
+            newciffilename = newfile_stem+"+0"+str(assembly) #OCT2026
 
         newciffile = open(newciffilename+pdbformat, 'w')
         newciffile.write("data_"+newciffilename+"\n")
