@@ -12,7 +12,6 @@ from Bio.PDB.MMCIFParser import FastMMCIFParser
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Align import MultipleSeqAlignment
-from Bio import pairwise2
 from CIFcurator.alignmentutils import *
 from CIFcurator.listutils import *
 from matching.games import HospitalResident
