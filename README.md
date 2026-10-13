@@ -93,7 +93,7 @@ Ensuring you have the pre-requisites will facilitate the installation process!
 
 >conda activate CIFcurator
 
->python setup.py install
+>pip install .
 
 3. Install Jupyter Notebook kernel
 

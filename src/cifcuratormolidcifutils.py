@@ -281,7 +281,7 @@ def make_MolID(myfile): # NEVER CALLED
                 molID = line_list[1].strip()
 
                 # Remove leading and trailing spaces
-                molID = re.sub(' \{0,\}$|^ \{0,\}', '', molID)
+                molID = re.sub(r' \{0,\}$|^ \{0,\}', '', molID)
 
                 # Remove any special characters
                 molID = re.sub(':|;|’|“|”', '', molID)
@@ -712,7 +712,7 @@ def show_full_conversion_and_file_list(current_MolID_class_list,current_MolID_fi
             fout.write('NewChainID:Entity:NumberOfFiles:Files\n')
 
     for molIDConversion in current_MolID_class_list:
-        molIDCon_chID_list_forPrint = re.sub('\[|\]| |\'', '', str(molIDConversion.chID_list))
+        molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
         filelist = [x.split("/")[-1] for x in current_MolID_file_list[molIDConversion.molID]]
         for file_name in filelist:
             print(molIDCon_chID_list_forPrint+":"+molIDConversion.molID+":"+str(len(filelist))+":"+file_name)
@@ -759,7 +759,7 @@ def show_full_conversion_and_file_list_by_number_chains(current_MolID_class_list
             if nchains > 5:
                 molIDCon_chID_list_forPrint = str(nchains)+"x"+str(molIDConversion.chID_list[0])
             else:
-                molIDCon_chID_list_forPrint = re.sub('\[|\]| |\'', '', str(molIDConversion.chID_list[:nchains]))
+                molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list[:nchains]))
             print(molIDCon_chID_list_forPrint+":"+molIDConversion.molID+":"+str(len(filelist))+":"+file_name)
             if write_csv:
                 with open(f'{target_dir}/NewChainID_numbered_MolID_Files_Map.csv', 'a') as fout:
@@ -808,9 +808,9 @@ def TEST_show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_
             if nchains > 5:
                 molIDCon_chID_list_forPrint = str(nchains)+"x"+str(molIDConversion.chID_list[0])
             else:
-                molIDCon_chID_list_forPrint = re.sub('\[|\]| |\'', '', str(molIDConversion.chID_list[:nchains]))
+                molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list[:nchains]))
 
-            chainds_for_print = re.sub('\[|\]| |\'', '',str(MolID_ChainID_dict_of_lists[molIDConversion.molID][counter]))
+            chainds_for_print = re.sub(r"\[|\]| |'", '',str(MolID_ChainID_dict_of_lists[molIDConversion.molID][counter]))
 
             print(chainds_for_print + ":" + molIDCon_chID_list_forPrint+":"+molIDConversion.molID+":"+str(len(filelist))+":"+file_name)
             if write_csv:
@@ -892,7 +892,7 @@ def show_full_conversion(current_list, step='conversion'):
     """
     if(step=='conversion'):
         for molIDConversion in current_list:
-            molIDCon_chID_list_forPrint = re.sub('\[|\]| |\'', '', str(molIDConversion.chID_list))
+            molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
             print(molIDConversion.molID+":"+molIDCon_chID_list_forPrint)
     elif(step=='concatenation'):
         for molID_class in current_list:
@@ -932,7 +932,7 @@ def show_unassigned_conversion(current_list, step='conversion'):
             if molIDConversion.complete is False:
                 counter1+=1
                 counter2=counter2+molIDConversion.occur
-                molIDCon_chID_list_forPrint = re.sub('\[|\]| |\'', '', str(molIDConversion.chID_list))
+                molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
                 #
                 print(str(molIDConversion.occur)+":"+str(molIDConversion.molID)+":"+molIDCon_chID_list_forPrint)
         print("You need to accept %s entity conversions" % counter1)
@@ -986,7 +986,7 @@ def return_unassigned_conversion(current_list, step='conversion'):
         for molIDConversion in current_list:
             molIDConversion.check_for_completeness()
             if molIDConversion.complete is False:
-                molIDCon_chID_list_forPrint = re.sub('\[|\]| |\'', '', str(molIDConversion.chID))#FAPA
+                molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID))#FAPA
                 print(str(molIDConversion.occur)+":"+str(molIDConversion.molID)+":"+molIDCon_chID_list_forPrint)
     elif(step=='concatenation'):
         for molID_class in current_list:
@@ -1109,7 +1109,7 @@ def search_conversion(molIDConversion_list, search_term):
     for molIDConversion in molIDConversion_list:
         if search_term in molIDConversion.molID:
             search_molIDConversion_list.append(molIDConversion)
-            molIDCon_chID_list_forPrint = re.sub('\[|\]| |\'', '', str(molIDConversion.chID_list))
+            molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
             print(molIDConversion.molID+":"+molIDCon_chID_list_forPrint)
     for molIDConversion in search_molIDConversion_list:
         molIDConversion_list.remove(molIDConversion)
@@ -1148,7 +1148,7 @@ def search_again_conversion(molIDConversion_list, search_molIDConversion_list, s
     for molIDConversion in search_molIDConversion_list:
         if search_term in molIDConversion.molID:
             new_search_molIDConversion_list.append(molIDConversion)
-            molIDCon_chID_list_forPrint = re.sub('\[|\]| |\'', '', str(molIDConversion.chID_list))
+            molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
             print(molIDConversion.molID+":"+molIDCon_chID_list_forPrint)
 
         else:

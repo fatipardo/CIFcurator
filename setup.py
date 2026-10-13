@@ -9,11 +9,7 @@ import subprocess
 from os.path import join as pjoin
 from glob import glob
 
-from distutils.extension import Extension
-from distutils.core import setup
-
-from Cython.Distutils import build_ext
-import numpy
+from setuptools import setup
 
 # ------------------------------------------------------------------------------
 # HEADER
@@ -64,17 +60,6 @@ def find_in_path(name, path):
     return None
 
 
-def get_numpy_include():
-    """
-    Obtain the numpy include directory. This logic works across numpy versions.
-    """
-    try:
-        numpy_include = numpy.get_include()
-    except AttributeError:
-        numpy_include = numpy.get_numpy_include()
-    return numpy_include
-
-
 def git_version():
     """
     Return the git revision as a string.
@@ -110,6 +95,7 @@ metadata['packages']     = ['CIFcurator']
 metadata['package_dir']  = {'CIFcurator' :         'src'}
 metadata['ext_modules']  = []
 metadata['scripts']      = [s for s in glob('scripts/*') if not s.endswith('__.py')]
+metadata['python_requires'] = '>=3.10'
 #metadata['data_files']   = [('reference', glob('./reference/*'))]
 #metadata['cmdclass']     = {'build_ext': custom_build_ext}
 
