@@ -2,14 +2,19 @@
 import os
 import shutil
 import re
+import gzip
 import numpy as np
 from urllib.request import urlopen
+from urllib.error import HTTPError
 from contextlib import closing, suppress
+#
+ASSEMBLY_URL='https://files.wwpdb.org/pub/pdb/data/assemblies/mmCIF/all/'
 #
 def download_pdb_from_metadata(metadata, projdir=None):
     """
-    Downloads PDB files based on metadata, in this case the description lines of the fasta files,
-    and saves them in the specified project directory.
+    Downloads all the biological assemblies of the PDB entries found in the metadata, in this case
+    the description lines of the fasta files, and saves them in the specified project directory.
+    Each assembly is saved as its own file: PDBID+NN.cif, where NN is the two-digit assembly number
 
     Parameters:
     -----------
@@ -30,7 +35,7 @@ def download_pdb_from_metadata(metadata, projdir=None):
             os.mkdir(download_dir)
         idset = get_idset_from_metadata(metadata)
         for pdbid in idset:
-            download_pdb_from_id(pdbid, download_dir=download_dir)
+            download_assemblies_from_id(pdbid, download_dir=download_dir)
 
 def download_pdb_from_id(pdbid, pdbformat='.cif', download_dir=None):
     """
@@ -56,6 +61,71 @@ def download_pdb_from_id(pdbid, pdbformat='.cif', download_dir=None):
         target = download_dir+'/'+pdbid+pdbformat
         source = download_url+pdbid.upper()+pdbformat
         download_from_url(source, target)
+
+def list_assemblies_from_id(pdbid):
+    """
+    Lists the biological assembly files available in the wwPDB archive for a specific PDB ID.
+
+    The 'all' directory listing is truncated by the server, so the list is read from the
+    'divided' directory, which groups the files by the middle two characters of the PDB ID.
+    If that listing is truncated too, the assemblies are found by trying assembly1, assembly2, ...
+
+    Parameters:
+    -----------
+    pdbid : str
+        The PDB ID of the entry.
+
+    Returns:
+    --------
+    filenames : list of str
+        The assembly file names (e.g. '1aw1-assembly1.cif.gz'), sorted by assembly number.
+    """
+    pdbid = pdbid.lower()
+    index_url = 'https://files.wwpdb.org/pub/pdb/data/assemblies/mmCIF/divided/'+pdbid[1:3]+'/'
+    with closing(urlopen(index_url)) as r:
+        listing = r.read().decode('utf-8', errors='replace')
+    if 'truncated' not in listing.lower():
+        found = re.findall(r'href="(' + pdbid + r'-assembly(\d+)\.cif\.gz)"', listing)
+        return [name for name, num in sorted(set(found), key=lambda x: int(x[1]))]
+    filenames = []
+    while True:
+        name = '{0}-assembly{1}.cif.gz'.format(pdbid, len(filenames)+1)
+        try:
+            with closing(urlopen(ASSEMBLY_URL+name)):
+                pass
+        except HTTPError as e:
+            if e.code == 404:
+                return filenames
+            raise
+        filenames.append(name)
+
+def download_assemblies_from_id(pdbid, download_dir=None):
+    """
+    Downloads all the biological assemblies of a specific PDB ID from the wwPDB archive,
+    decompresses them and saves them in the specified directory as PDBID+NN.cif, where NN is the
+    assembly number written with two digits (1aw1-assembly3.cif.gz -> 1aw1+03.cif)
+
+    Parameters:
+    -----------
+    pdbid : str
+        The PDB ID of the entry whose assemblies will be downloaded.
+    download_dir : str, optional
+        The directory where the downloaded files will be saved. If None, a message will display.
+
+    Returns:
+    --------
+    None
+    """
+    if download_dir is None:
+        print("Please provide a directory where to store downloaded files...")
+    else:
+        filenames = list_assemblies_from_id(pdbid)
+        if not filenames:
+            print('WARNING: no assemblies found for {0}'.format(pdbid))
+        for name in filenames:
+            number = int(re.search(r'-assembly(\d+)\.cif\.gz$', name).group(1))
+            target = download_dir+'/{0}+{1:02d}.cif'.format(pdbid.lower(), number)
+            download_from_url(ASSEMBLY_URL+name, target, gunzip=True)
 
 def get_idset_from_metadata(metadata):
     """
@@ -145,7 +215,7 @@ def retrieve_seqfile(seqfile=None):
     download_from_url(sequrl, seqfile)
     return seqfile
 #
-def download_from_url(source, target):
+def download_from_url(source, target, gunzip=False):
     """
     Downloads a file from a given URL and saves it to a specified target location.
 
@@ -155,6 +225,8 @@ def download_from_url(source, target):
         The URL of the file to be downloaded.
     target : str
         The path where the downloaded file will be saved.
+    gunzip : bool, optional
+        If True, the downloaded file is gzip-compressed and is decompressed while saving. Default is False.
 
     Returns:
     --------
@@ -162,6 +234,10 @@ def download_from_url(source, target):
     """
     with closing(urlopen(source)) as r:
         with open(target, 'wb') as f:
-            shutil.copyfileobj(r,f)
+            if gunzip:
+                with gzip.GzipFile(fileobj=r) as g:
+                    shutil.copyfileobj(g,f)
+            else:
+                shutil.copyfileobj(r,f)
     print('wrote {0} from {1}'.format(target, source))
 
