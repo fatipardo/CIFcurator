@@ -81,14 +81,9 @@ while(input_menu != "QUIT"):
         molIDConversion_list = molidutils.edit_conversion_manual(molIDConversion_list)
     elif (input_menu == "6"):
         molIDConversion_list = molidutils.edit_conversion_interface(molIDConversion_list, action='remove')
-    elif (input_menu == "B"): # SECRET MENU: Print entity:file_name list
-        molidutils.Print_MolID_To_Files_Map(MolID_to_files_map,target_dir)
-    elif (input_menu == "C"): # SECRET MENU  Print CHAIN-NAME:ENTITY:FILE-NAME
-        molidutils.show_full_conversion_and_file_list(molIDConversion_list,MolID_to_files_map,target_dir)
-    elif (input_menu == "D"): # SECRET MENU Print similar to C but print only relevant chain names
-        molidutils.show_full_conversion_and_file_list_by_number_chains(molIDConversion_list,MolID_to_files_map,MolID_occur_dict_of_lists,target_dir)
     elif (input_menu == "A"):
-        molidutils.TEST_show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_lists,molIDConversion_list, MolID_to_files_map,
+        molidutils.show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_lists,
+                                                                       molIDConversion_list, MolID_to_files_map,
                                                                        MolID_occur_dict_of_lists, target_dir)
     elif (input_menu == "7"):
         if (input_menu_complete == "1"):
