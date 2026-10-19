@@ -9,8 +9,10 @@ import io
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -223,6 +225,39 @@ class TestPdbUtils(TempDirTestCase):
         with mock.patch.object(pdbutils, 'download_from_url') as dl:
             pdbutils.download_pdb_from_id('1aw1', download_dir='/some/dir')
         dl.assert_called_once_with('https://files.rcsb.org/download/1AW1.cif', '/some/dir/1aw1.cif')
+
+
+class TestRunScript(TempDirTestCase):
+    def test_interrupt_kills_script_and_its_children(self):
+        # The script starts a long-running child, as the alignment scripts start MUSCLE.
+        pidfile = os.path.join(self.tmp, 'child.pid')
+        script = self.write('script.py', (
+            'import subprocess, sys, time\n'
+            'child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])\n'
+            'open({0!r}, "w").write(str(child.pid))\n'
+            'time.sleep(60)\n').format(pidfile))
+
+        def interrupt(*args, **kwargs):
+            for _ in range(100):
+                if os.path.exists(pidfile) and os.path.getsize(pidfile):
+                    break
+                time.sleep(0.1)
+            raise KeyboardInterrupt
+
+        with mock.patch.object(subprocess.Popen, 'communicate', interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                _support.run_script(script, [], '', cwd=os.path.join(self.tmp, 'cwd'),
+                                    log_path=os.path.join(self.tmp, 'log'))
+        with open(pidfile) as f:
+            child = f.read()
+        # The orphaned child is reaped by init shortly after it is killed.
+        for _ in range(50):
+            state = subprocess.run(['ps', '-o', 'stat=', '-p', child],
+                                   stdout=subprocess.PIPE, text=True).stdout.strip()
+            if state in ('', 'Z'):
+                break
+            time.sleep(0.1)
+        self.assertIn(state, ('', 'Z'), 'child process {0} still running'.format(child))
 
 
 class TestCheckProject(TempDirTestCase):
