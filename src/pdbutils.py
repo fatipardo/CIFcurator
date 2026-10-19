@@ -4,6 +4,7 @@ import shutil
 import re
 import numpy as np
 from urllib.request import urlopen
+from urllib.error import ContentTooShortError
 from contextlib import closing, suppress
 #
 def download_pdb_from_metadata(metadata, projdir=None):
@@ -159,9 +160,26 @@ def download_from_url(source, target):
     Returns:
     --------
     None
+
+    Raises:
+    -------
+    ContentTooShortError
+        If fewer bytes arrive than the server's Content-Length. The data is written to
+        target + '.part' and renamed only once complete, so target is never left truncated.
     """
-    with closing(urlopen(source)) as r:
-        with open(target, 'wb') as f:
-            shutil.copyfileobj(r,f)
+    partial = target + '.part'
+    try:
+        with closing(urlopen(source)) as r:
+            expected = r.info().get('Content-Length')
+            with open(partial, 'wb') as f:
+                shutil.copyfileobj(r,f)
+                received = f.tell()
+        if expected is not None and received < int(expected):
+            raise ContentTooShortError('retrieval incomplete: got only {0} out of {1} bytes from {2}'.format(
+                received, expected, source), None)
+        os.replace(partial, target)
+    finally:
+        with suppress(FileNotFoundError):
+            os.remove(partial)
     print('wrote {0} from {1}'.format(target, source))
 
