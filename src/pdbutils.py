@@ -2,6 +2,7 @@
 import os
 import shutil
 import re
+import uuid
 import numpy as np
 from urllib.request import urlopen
 from urllib.error import ContentTooShortError
@@ -165,13 +166,16 @@ def download_from_url(source, target):
     -------
     ContentTooShortError
         If fewer bytes arrive than the server's Content-Length. The data is written to
-        target + '.part' and renamed only once complete, so target is never left truncated.
+        a staging file unique to this call, next to target, and renamed only once complete,
+        so target is never left truncated, even when several calls download the same target.
     """
-    partial = target + '.part'
+    # Unique name, opened with 'x' so it is never shared; unlike tempfile.mkstemp this keeps
+    # the usual umask permissions, which the downloaded file inherits.
+    partial = '{0}.{1}.part'.format(target, uuid.uuid4().hex)
     try:
         with closing(urlopen(source)) as r:
             expected = r.info().get('Content-Length')
-            with open(partial, 'wb') as f:
+            with open(partial, 'xb') as f:
                 shutil.copyfileobj(r,f)
                 received = f.tell()
         if expected is not None and received < int(expected):
