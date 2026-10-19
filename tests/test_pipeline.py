@@ -70,6 +70,7 @@ class Pipeline:
                     continue
                 except Exception as e:
                     self.failed[s] = e
+                    raise
             if s == step:
                 raise self.failed[s]
             raise unittest.SkipTest('{0} failed: {1}'.format(s, str(self.failed[s]).splitlines()[0]))
