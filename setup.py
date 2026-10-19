@@ -15,7 +15,7 @@ from setuptools import setup
 # HEADER
 #
 
-VERSION      = "1.0.0"
+VERSION      = "1.0.1"
 ISRELEASED   = False
 DISABLE_CUDA = True
 __author__   = "Levitt Lab, Stanford"
@@ -95,7 +95,7 @@ metadata['packages']     = ['CIFcurator']
 metadata['package_dir']  = {'CIFcurator' :         'src'}
 metadata['ext_modules']  = []
 metadata['scripts']      = [s for s in glob('scripts/*') if not s.endswith('__.py')]
-metadata['python_requires'] = '>=3.10'
+metadata['python_requires'] = '>=3.11'
 #metadata['data_files']   = [('reference', glob('./reference/*'))]
 #metadata['cmdclass']     = {'build_ext': custom_build_ext}
 
