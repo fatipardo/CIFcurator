@@ -190,6 +190,35 @@ class TestPdbUtils(TempDirTestCase):
                 pdbutils.download_from_url('https://example.org/file.cif', target)
         self.assertEqual(os.listdir(self.tmp), [])
 
+    def test_download_from_url_concurrent_calls_do_not_share_staging_file(self):
+        # While the first call is reading, a second, truncated download of the same target
+        # runs and fails. The first must still publish its own complete data.
+        target = os.path.join(self.tmp, 'local.cif')
+        test = self
+
+        class Response(io.BytesIO):
+            def __init__(self, data, length):
+                super().__init__(data)
+                self.length = length
+
+            def info(self):
+                return {'Content-Length': str(self.length)}
+
+        class Interrupted(Response):
+            def read(self, *args):
+                if self.tell() == 0:
+                    with test.assertRaises(pdbutils.ContentTooShortError):
+                        pdbutils.download_from_url('https://example.org/file.cif', target)
+                return super().read(*args)
+
+        full = b'data_TEST\n' * 100
+        responses = iter([Interrupted(full, len(full)), Response(b'data_', len(full))])
+        with mock.patch.object(pdbutils, 'urlopen', side_effect=lambda url: next(responses)), quiet():
+            pdbutils.download_from_url('https://example.org/file.cif', target)
+        with open(target, 'rb') as f:
+            self.assertEqual(f.read(), full)
+        self.assertEqual(os.listdir(self.tmp), ['local.cif'])
+
     def test_download_pdb_from_id_builds_rcsb_url(self):
         with mock.patch.object(pdbutils, 'download_from_url') as dl:
             pdbutils.download_pdb_from_id('1aw1', download_dir='/some/dir')
