@@ -63,6 +63,8 @@ def seqres_file():
 
     The download goes to a temporary name and is renamed only once complete, so an
     interrupted download never leaves a truncated file that later runs would trust.
+    retrieve_seqfile raises ContentTooShortError when fewer bytes arrive than the
+    server's Content-Length, so a truncated response is never cached either.
     """
     from CIFcurator import pdbutils
     os.makedirs(CACHE_DIR, exist_ok=True)

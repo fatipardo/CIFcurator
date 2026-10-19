@@ -180,6 +180,16 @@ class TestPdbUtils(TempDirTestCase):
         with open(target) as f:
             self.assertEqual(f.read(), 'data_TEST\n')
 
+    def test_download_from_url_rejects_truncated_response(self):
+        class Short(io.BytesIO):
+            def info(self):
+                return {'Content-Length': '4096'}
+        target = os.path.join(self.tmp, 'local.cif')
+        with mock.patch.object(pdbutils, 'urlopen', return_value=Short(b'data_TEST\n')):
+            with self.assertRaises(pdbutils.ContentTooShortError):
+                pdbutils.download_from_url('https://example.org/file.cif', target)
+        self.assertEqual(os.listdir(self.tmp), [])
+
     def test_download_pdb_from_id_builds_rcsb_url(self):
         with mock.patch.object(pdbutils, 'download_from_url') as dl:
             pdbutils.download_pdb_from_id('1aw1', download_dir='/some/dir')
