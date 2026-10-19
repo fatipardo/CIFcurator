@@ -13,6 +13,7 @@ CIFCURATOR_KEEP_TEST_OUTPUT=1     keep the pipeline work directory after the run
 CIFCURATOR_SCRIPT_TIMEOUT=<sec>   timeout for each interactive script (default: 1800)
 """
 import atexit
+import contextlib
 import os
 import shutil
 import signal
@@ -119,12 +120,23 @@ def run_script(script, args, answers, cwd, log_path, timeout=None):
             proc.communicate(answers, timeout=timeout)
             problem = None if proc.returncode == 0 else 'exited with code {0}'.format(proc.returncode)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
+            _kill_group(proc)
             problem = 'timed out after {0:.0f} s'.format(timeout)
+        except BaseException:
+            # Ctrl-C reaches only the test runner (the script is in its own session),
+            # so stop the script and MUSCLE here too before passing the exception on.
+            _kill_group(proc)
+            raise
     if problem:
         raise ScriptFailed('{0} {1}. Last lines of {2}:\n{3}'.format(
             script, problem, log_path, tail(log_path)))
+
+
+def _kill_group(proc):
+    """Kill the process group started by run_script (the script and MUSCLE) and reap the script."""
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(proc.pid, signal.SIGKILL)
+    proc.wait()
 
 
 def tail(path, n=40):
