@@ -49,8 +49,6 @@ while(input_menu != "QUIT"):
                                                                                                                                    input_menu_check)
     elif (input_menu == "2" and input_menu_check == "1"):
         resstd.show_conversiontemplate(Structure_ConversionTemplate)
-    #elif (input_menu == "3" and input_menu_check == "1"):
-    #    resstd.conversiontemplate_to_pdb(filelist, Structure_ConversionTemplate, target_dir=target_dir)
     elif (input_menu == "4" and input_menu_check == "1"):
         resstd.write_and_show_conversiontemplate(Structure_ConversionTemplate,target_dir,True)
     elif (input_menu == "3" and input_menu_check == "1"):

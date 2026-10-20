@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/Applications/anaconda3/envs/CIFcurator/bin/python3.14
 # coding: utf-8
 #
 from __future__ import print_function
