@@ -132,163 +132,8 @@ def AlignSequences(sequence_vec):
 
     process.close()
     return (aligned_seq)
-# END AlignSequences
 
-def AlignSequences_v2(sequence_vec, file_name, this_chainsseq_list_ids):
-    """
-    Takes a list of sequence strings and performs a MUSCLE alignment, outputting
-    a vector of aligned sequence strings.
-
-    Parameters:
-    -----------
-    sequence_vec : list of str
-        list of sequences to be aligned
-    file_name : str
-        Name given to FASTA file
-    this_chainsseq_list_ids : list of str
-        List of identifiers for each sequence which are also used as headers in the
-        FASTA file.
-
-    Returns:
-    --------
-    aligned_seq_map : dict
-        A dictionary where the keys are the sequence identifiers from `this_chainsseq_list_ids`
-        and the values are the corresponding aligned sequence strings.
-    """
-    # Takes a list of sequence strings and performs a MUSCLE alignment, outputting a vector of aligned sequence strings
-    with open(file_name+".fa", 'w') as newfafile:
-        i = 0
-        for seq in sequence_vec:
-            newfafile.write("> Seq " + str(this_chainsseq_list_ids[i]) + "\n")
-            newfafile.write(seq + "\n")
-            i += 1
-    #command = "muscle -align "+file_name+".fa -output "+file_name+".fasta"
-    command = "muscle -super5 "+file_name+".fa -output "+file_name+".fasta" #FAPA 26AUG2025
-
-    process = os.popen(command)
-
-    process
-
-    #FAPA START
-    while not os.path.exists(file_name+".fasta"):
-        time.sleep(10)
-        print("waiting...")
-
-    while not os.path.getsize(file_name+".fasta") > 0:
-        time.sleep(10)
-        print("waiting even more...")
-
-    aligned_seq_map = {}
-    aligned_seq = []
-    seq = ""
-    with open(file_name + ".fasta") as seqfile:
-        for line in seqfile:
-            if (line[0] == ">"):
-                # Very first line
-                if (seq == ""):
-                    line = line.strip()
-                    line = line.split()
-                    key = line[2]
-                else:
-                    aligned_seq_map[key] = seq
-                    seq = ""
-                    line = line.strip()
-                    line = line.split()
-                    key = line[2]
-            else:
-                seq += line.strip()
-        aligned_seq_map[key] = seq
-
-    for item in (aligned_seq_map.keys()):
-        aligned_seq.append(aligned_seq_map[item])
-
-    process.close()
-    return (aligned_seq_map)
-
-# END AlignSequences
-
-# FAPA MAY TEST BEGIN
-
-def AlignSequences_v3(sequence_vec, file_name, this_chainsseq_list_ids):
-    """
-    Takes a list of sequence strings and performs a MUSCLE alignment,
-    outputting a vector of aligned sequence strings. This version checks
-    if an alignment has already been provided, before running muscle, and
-    in that case, just reads the existing alignment.
-
-    Parameters:
-    -----------
-    sequence_vec : list of str
-        list of sequences to be aligned
-    file_name : str
-        Name given to FASTA file
-    this_chainsseq_list_ids : list of str
-        List of identifiers for each sequence which are also used as headers in the
-        FASTA file.
-
-    Returns:
-    --------
-    aligned_seq_map : dict
-        A dictionary where the keys are sequence identifiers from `this_chainsseq_list_ids` and
-        the values are the corresponding aligned sequence strings.
-    """
-    if os.path.exists(file_name+".fasta") == False:
-
-        with open(file_name+".fa", 'w') as newfafile:
-            i = 0
-            for seq in sequence_vec:
-                newfafile.write("> Seq " + str(this_chainsseq_list_ids[i]) + "\n")
-                newfafile.write(seq + "\n")
-                i += 1
-
-        #command = "muscle -align "+file_name+".fa -output "+file_name+".fasta"
-        command = "muscle -super5 "+file_name+".fa -output "+file_name+".fasta" # FAPA 26AUG2025
-        process = os.popen(command)
-        process
-
-        while not os.path.exists(file_name+".fasta"):
-            time.sleep(10)
-            print("waiting...")
-
-        while not os.path.getsize(file_name+".fasta") > 0:
-            time.sleep(10)
-            print("waiting even more...")
-        process.close()
-
-    else:
-        print("Alignment already exists, so I will use that one!")
-
-    aligned_seq_map = {}
-    aligned_seq = []
-    seq = ""
-    with open(file_name + ".fasta") as seqfile:
-        for line in seqfile:
-            if (line[0] == ">"):
-                # Very first line
-                if (seq == ""):
-                    line = line.strip()
-                    line = line.split()
-                    key = line[2]
-                else:
-                    aligned_seq_map[key] = seq
-                    seq = ""
-                    line = line.strip()
-                    line = line.split()
-                    key = line[2]
-            else:
-                seq += line.strip()
-        aligned_seq_map[key] = seq
-
-    for item in (aligned_seq_map.keys()):
-        aligned_seq.append(aligned_seq_map[item])
-
-
-    return (aligned_seq_map)
-
-
-# FAPA JULY TEST STARTS HERE
-
-def AlignSequences_v4(sequence_vec, file_name, this_chainsseq_list_ids):
+def AlignSequenceResNum(sequence_vec, file_name, this_chainsseq_list_ids):
     """
     Takes a list of sequence strings and performs a MUSCLE alignment, outputting
     a vector of aligned sequence strings. This version checks if an alignment has
@@ -323,7 +168,6 @@ def AlignSequences_v4(sequence_vec, file_name, this_chainsseq_list_ids):
                 newfafile.write(seq + "\n")
                 i += 1
 
-        #command = "muscle -align "+file_name+".fa -output "+file_name+".fasta"
         command = "muscle -super5 "+file_name+".fa -output "+file_name+".fasta" # FAPA 26AUG2025
         process = os.popen(command)
         process
@@ -372,7 +216,6 @@ def AlignSequences_v4(sequence_vec, file_name, this_chainsseq_list_ids):
     sequences = read_fasta_files( file_name + ".fasta")
     gap_percentages = calculate_gap_percentages(sequences)
 
-    #print(aligned_seq_map)
     print("Gap percentages per position:")
     print(gap_percentages)
 
