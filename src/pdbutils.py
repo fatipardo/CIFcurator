@@ -3,9 +3,10 @@ import os
 import shutil
 import re
 import gzip
+import uuid
 import numpy as np
 from urllib.request import urlopen
-from urllib.error import HTTPError
+from urllib.error import HTTPError, ContentTooShortError
 from contextlib import closing, suppress
 #
 ASSEMBLY_URL='https://files.wwpdb.org/pub/pdb/data/assemblies/mmCIF/all/'
@@ -231,13 +232,37 @@ def download_from_url(source, target, gunzip=False):
     Returns:
     --------
     None
+
+    Raises:
+    -------
+    ContentTooShortError
+        If fewer bytes arrive than the server's Content-Length. The data is written to
+        a staging file unique to this call, next to target, and renamed only once complete,
+        so target is never left truncated, even when several calls download the same target.
     """
-    with closing(urlopen(source)) as r:
-        with open(target, 'wb') as f:
-            if gunzip:
-                with gzip.GzipFile(fileobj=r) as g:
-                    shutil.copyfileobj(g,f)
-            else:
+    # Unique name, opened with 'x' so it is never shared; unlike tempfile.mkstemp this keeps
+    # the usual umask permissions, which the downloaded file inherits.
+    partial = '{0}.{1}.part'.format(target, uuid.uuid4().hex)
+    # Content-Length counts the compressed bytes, so a gzip file is checked before it is decompressed.
+    unzipped = partial + '.gunzip'
+    try:
+        with closing(urlopen(source)) as r:
+            expected = r.info().get('Content-Length')
+            with open(partial, 'xb') as f:
                 shutil.copyfileobj(r,f)
+                received = f.tell()
+        if expected is not None and received < int(expected):
+            raise ContentTooShortError('retrieval incomplete: got only {0} out of {1} bytes from {2}'.format(
+                received, expected, source), None)
+        if gunzip:
+            with gzip.open(partial, 'rb') as g, open(unzipped, 'xb') as f:
+                shutil.copyfileobj(g,f)
+            os.replace(unzipped, target)
+        else:
+            os.replace(partial, target)
+    finally:
+        for staging in (partial, unzipped):
+            with suppress(FileNotFoundError):
+                os.remove(staging)
     print('wrote {0} from {1}'.format(target, source))
 

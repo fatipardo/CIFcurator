@@ -1061,8 +1061,16 @@ def reassignedmaps_to_pdb(filelist, ChainReassignmentMapping_List, structid_list
             with open(newciffilename, 'w') as newciffile:
                 # Now figure out which file is which template
                 I = structid_list.index(myfile.name)
+                category = None # OCT2026
                 for line in myfile:
-                    if (line[0:4] == "ATOM"):
+                    # OCT2026: track the category, to find the rows of struct_asym and pdbx_poly_seq_scheme
+                    if line.startswith('_'):
+                        category = line.split('.')[0]
+                    elif line.startswith('#'):
+                        category = None
+                    is_row = category is not None and not line.startswith(('_', 'loop_')) and line.split() != []
+                    # OCT2026: HETATM too (e.g. modified residues), so that a chain is renamed whole
+                    if (line[0:4] == "ATOM") or (line[0:6] == "HETATM"):
                             # Chains outside map should not exist but just in case
                         line_split = line.split()
                         if line_split[17] in ChainReassignmentMapping_List[I]:
@@ -1070,6 +1078,15 @@ def reassignedmaps_to_pdb(filelist, ChainReassignmentMapping_List, structid_list
                             newciffile.write(newline)
                         else:
                             newciffile.write(line)
+                    # OCT2026: same chain IDs in struct_asym (id: column 0) and in pdbx_poly_seq_scheme
+                    # (asym_id and pdb_strand_id: columns 0 and 9)
+                    elif category in ('_struct_asym', '_pdbx_poly_seq_scheme') and is_row:
+                        line_split = line.split()
+                        if line_split[0] in ChainReassignmentMapping_List[I]:
+                            line_split[0] = ChainReassignmentMapping_List[I][line_split[0]]
+                            if category == '_pdbx_poly_seq_scheme':
+                                line_split[9] = line_split[0]
+                        newciffile.write(" ".join(line_split) + "\n")
                     else:
                         newciffile.write(line)
 

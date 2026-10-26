@@ -648,127 +648,7 @@ def CreateMasterUniqueMolIDMapWithFileName(molID_class_list):
                 files_contain_molID[molID].append(my_molID_class.file_name)
     return files_contain_molID
 
-
-def Print_MolID_To_Files_Map(MolID_to_files_map,target_dir,write_csv=True):
-    """
-    Prints a mapping of entity names (MolID) to a list of associated CIF(s) and
-    optionally writes the mapping to a CSV file.
-
-    Parameters:
-    -----------
-    MolID_to_files_map : dict
-        A dictionary where keys are entity names (MolID) and values are lists of
-        file paths associated with each MolID.
-    target_dir : str
-        The directory where the CSV file will be saved if `write_csv` is True.
-    write_csv : bool, Optional
-        if True, writes the entity name to files mapping to a CSV file in the `target_dir`.
-        Default is True.
-
-    Returns:
-    --------
-    None
-    """
-    if write_csv:
-        with open(f'{target_dir}/MolID_To_Files_Map.csv', 'w') as fout:
-            fout.write('Entity:Number_of_Files:Files\n')
-    for key in MolID_to_files_map:
-        filelist = [x.split("/")[-1] for x in MolID_to_files_map[key]]
-        print(key + ":  " +", ".join(filelist))
-        if write_csv:
-            with open(f'{target_dir}/MolID_To_Files_Map.csv', 'a') as fout:
-                fout.write(f'{key}:{len(filelist)}:{",".join(filelist)}\n')
-    print("\n")
-
-
-# FAPA MARCH 2024 END
-
-### FAPA APRIL 2024 START
-
-def show_full_conversion_and_file_list(current_MolID_class_list,current_MolID_file_list,target_dir,write_csv=True ):
-    """
-    Display and optionally save a mapping of new chain IDs to entity names, including
-    associated file lists and the number of files for each entity name.
-
-    Parameters
-    ----------
-    current_MolID_class_list : list
-        A list of `MolIDConversion` class instances, each representing the mapping between old
-        and new chain IDs for a entity name.
-    current_MolID_file_list : dict
-        A dictionary where each key is an entity name, and the corresponding value is a list
-        of file paths associated with that entity name.
-    target_dir : str
-        The directory path where the CSV file will be saved if `write_csv` is `True`.
-    write_csv : bool, optional
-        If `True`, the function will save the output to a CSV file. Default is `True`.
-
-    Returns
-    -------
-    None
-    """
-    if write_csv:
-        with open(f'{target_dir}/NewChainID_MolID_Files_Map.csv', 'w') as fout:
-            fout.write('NewChainID:Entity:NumberOfFiles:Files\n')
-
-    for molIDConversion in current_MolID_class_list:
-        molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
-        filelist = [x.split("/")[-1] for x in current_MolID_file_list[molIDConversion.molID]]
-        for file_name in filelist:
-            print(molIDCon_chID_list_forPrint+":"+molIDConversion.molID+":"+str(len(filelist))+":"+file_name)
-            if write_csv:
-                with open(f'{target_dir}/NewChainID_MolID_Files_Map.csv', 'a') as fout:
-                    fout.write(f'{molIDCon_chID_list_forPrint}:{molIDConversion.molID}:{str(len(filelist))}:{file_name}\n')
-    print("\n")
-
-
-def show_full_conversion_and_file_list_by_number_chains(current_MolID_class_list,current_MolID_file_list,MolID_occur_dict_of_lists,target_dir,write_csv=True ):
-    """
-    Display and optionally save a mapping of new chain IDs to entity names, including
-    associated file lists and the number of occurrences of each entity name.
-
-    Parameters
-    ----------
-    current_MolID_class_list : list
-        A list of `MolIDConversion` class instances, each representing the mapping between old
-        and new chain IDs for a entity name.
-    current_MolID_file_list : dict
-        A dictionary where each key is an entity name, and the corresponding value is a list
-        of file paths associated with that entity name.
-    MolID_occur_dict_of_lists : dict
-        A dictionary where each key is an entity name, and the corresponding value is a list
-        of integers representing the number of occurrences (chains) in the corresponding file.
-    target_dir : str
-        The directory path where the CSV file will be saved if `write_csv` is `True`.
-    write_csv : bool, optional
-        If `True`, the function will save the output to a CSV file. Default is `True`.
-
-    Returns
-    -------
-    None
-    """
-    if write_csv:
-        with open(f'{target_dir}/NewChainID_numbered_MolID_Files_Map.csv', 'w') as fout:
-            fout.write('NewChainID:Entity:NumberOfFiles:Files\n')
-
-    for molIDConversion in current_MolID_class_list:
-        filelist = [x.split("/")[-1] for x in current_MolID_file_list[molIDConversion.molID]]
-        counter=0
-        for file_name in filelist:
-            nchains=MolID_occur_dict_of_lists[molIDConversion.molID][counter]
-            if nchains > 5:
-                molIDCon_chID_list_forPrint = str(nchains)+"x"+str(molIDConversion.chID_list[0])
-            else:
-                molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list[:nchains]))
-            print(molIDCon_chID_list_forPrint+":"+molIDConversion.molID+":"+str(len(filelist))+":"+file_name)
-            if write_csv:
-                with open(f'{target_dir}/NewChainID_numbered_MolID_Files_Map.csv', 'a') as fout:
-                    fout.write(f'{molIDCon_chID_list_forPrint}:{molIDConversion.molID}:{str(len(filelist))}:{file_name}\n')
-            counter+=1
-    print("\n")
-
-
-def TEST_show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_lists,current_MolID_class_list,current_MolID_file_list,MolID_occur_dict_of_lists,target_dir,write_csv=True ):
+def show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_lists,current_MolID_class_list,current_MolID_file_list,MolID_occur_dict_of_lists,target_dir,write_csv=True):
     """
     Display and optionally save a mapping of old chain IDs to new chain IDs, including
     associated file lists and the number of occurrences of each entity name.
@@ -819,8 +699,6 @@ def TEST_show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_
             counter+=1
 
     print("\n")
-
-### FAPA APRIL 2024 END
 #
 #
 # Read input file function
@@ -1802,7 +1680,15 @@ def masterlist_to_pdb(filelist, masterlist, target_dir=None):
             with open(newciffilename, 'w') as newciffile:
                 for molID_class in masterlist:
                     if (molID_class.file_name == myfile.name):
+                        category = None # OCT2026
+                        written_asym_ids = set() # OCT2026
                         for line in myfile:
+                            # OCT2026: track the category, to find the rows of struct_asym and pdbx_poly_seq_scheme
+                            if line.startswith('_'):
+                                category = line.split('.')[0]
+                            elif line.startswith('#'):
+                                category = None
+                            is_row = category is not None and not line.startswith(('_', 'loop_')) and line.split() != []
                             if (line[0:4] == "ATOM") or (line[0:6]=="HETATM"):
                                 # Chains outside map should not exist but just in case
                                 line_split = line.split()
@@ -1820,6 +1706,29 @@ def masterlist_to_pdb(filelist, masterlist, target_dir=None):
 
                                 else:
                                     newciffile.write(line)
+
+                            # OCT2026: same chain IDs in struct_asym (one row per chain: concatenated chains share it)
+                            elif category == '_struct_asym' and is_row:
+                                line_split = line.split()
+                                if line_split[0] in molID_class.chID_newchID_map:
+                                    line_split[0] = molID_class.chID_newchID_map[line_split[0]]
+                                if line_split[0] not in written_asym_ids:
+                                    written_asym_ids.add(line_split[0])
+                                    newciffile.write(" ".join(line_split) + "\n")
+
+                            # OCT2026: same chain IDs and author residue numbers in pdbx_poly_seq_scheme
+                            # (asym_id, pdb_seq_num, auth_seq_num, pdb_strand_id: columns 0, 5, 6 and 9)
+                            elif category == '_pdbx_poly_seq_scheme' and is_row:
+                                line_split = line.split()
+                                if line_split[0] in molID_class.chID_newchID_map:
+                                    if line_split[0] in molID_class.concat_order:
+                                        residue_offset = (molID_class.concat_order[line_split[0]] - 1) * 50000
+                                        for column in (5, 6):
+                                            if line_split[column] not in ('?', '.'):
+                                                line_split[column] = str(int(line_split[column]) + int(residue_offset))
+                                    line_split[0] = molID_class.chID_newchID_map[line_split[0]]
+                                    line_split[9] = line_split[0]
+                                newciffile.write(" ".join(line_split) + "\n")
 
                             else:
                                 newciffile.write(line)
