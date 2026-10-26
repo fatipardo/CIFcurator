@@ -167,7 +167,7 @@ def perform_multiple_alignment(Structure_Sequences, ChID_ResiNum_Vector, structi
                         this_chainsseq_list.append(Structure_Sequences[key])
                         this_chainsseq_list_ids.append(structid_list[I]) # FAPA
 
-                this_chainsseq_aligned_list_map, this_chainseq_gap_percentages = AlignSequences_v4(this_chainsseq_list, chid,
+                this_chainsseq_aligned_list_map, this_chainseq_gap_percentages = AlignSequenceResNum(this_chainsseq_list, chid,
                                                                     this_chainsseq_list_ids)  # FAPA JULY2024
                 i = 0
                 for I in range(len(structid_list)):
