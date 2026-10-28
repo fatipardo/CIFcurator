@@ -16,6 +16,7 @@ from CIFcurator.alignmentutils import *
 from CIFcurator.listutils import *
 from matching.games import HospitalResident
 import json
+import ast
 sys.setrecursionlimit(10000)
 
 ####################
@@ -175,15 +176,59 @@ def create_standard_seq_from_consensus(Structure_Sequences, Standard_Sequences, 
             input_menu_check_1 = "1"
         elif (input_submenu == "5"):
             Std_Seq_file = input("File with dictionary of the standard sequences: ")
-            with open(Std_Seq_file) as f:
-                data = f.read()
-            print(type(data))
-            Standard_Sequences = json.loads(data)
-            print(type(Standard_Sequences))
+            Standard_Sequences = load_standard_sequences(Std_Seq_file)
 
             input_submenu = "QUIT"
             input_menu_check_1 = "1"
     return Standard_Sequences, input_menu_check_1
+
+def save_standard_sequences(Standard_Sequences, target_dir, filename='StandardSequences.json'):
+    """
+    OCT2026: Writes the standard sequences to a JSON file, which can be loaded again with option
+    '5) Load previously generated standard sequences'.
+
+    Parameters:
+    -----------
+    Standard_Sequences : dict
+        Dictionary with chain IDs as keys and their standard sequences as values.
+    target_dir : str
+        Directory where the file is written.
+    filename : str, optional
+        Name of the file. Default is 'StandardSequences.json'.
+
+    Returns:
+    --------
+    std_seq_file : str
+        Path of the file written.
+    """
+    os.makedirs(target_dir, exist_ok=True)
+    std_seq_file = os.path.join(target_dir, filename)
+    with open(std_seq_file, 'w') as f:
+        f.write(json.dumps(Standard_Sequences, indent=4) + "\n")
+    return std_seq_file
+
+def load_standard_sequences(std_seq_file):
+    """
+    OCT2026: Reads the standard sequences from a JSON file written by save_standard_sequences.
+    Files made by earlier versions, with the dictionary as printed by Python (single quotes),
+    are also accepted.
+
+    Parameters:
+    -----------
+    std_seq_file : str
+        Path of the file with the dictionary of standard sequences.
+
+    Returns:
+    --------
+    Standard_Sequences : dict
+        Dictionary with chain IDs as keys and their standard sequences as values.
+    """
+    with open(std_seq_file) as f:
+        data = f.read()
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError:
+        return ast.literal_eval(data.strip())
 
 def review_standard_seq(Structure_Sequences, Standard_Sequences):
     """

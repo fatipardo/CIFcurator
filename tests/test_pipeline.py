@@ -20,6 +20,7 @@ earlier step fails, the later steps are skipped and the skip message names it.
 """
 import contextlib
 import glob
+import json
 import os
 import shutil
 import string
@@ -338,6 +339,16 @@ class TestStep4ChainID(unittest.TestCase):
                 (asym,) = _support.cif_columns(PIPELINE.path('standard_ChainID_bank', name + '.cif'),
                                                '_atom_site.label_asym_id')
                 self.assertIn(new, asym)
+
+    def test_standard_sequences_saved_as_json(self):
+        # OCT2026: the consensus sequences are written as JSON, ready to be loaded with option 2) -> 5)
+        with open(PIPELINE.path('standard_ChainID_bank', 'StandardSequences.json')) as f:
+            std_seqs = json.load(f)
+        # Every chain that Step 4 assigned is one of the standard sequences
+        self.assertLessEqual({r[2] for r in self.records}, set(std_seqs))
+        for chid, seq in std_seqs.items():
+            with self.subTest(chain=chid):
+                self.assertRegex(seq, r'^[A-Z]+$')
 
     def test_consistent_with_mmcif_dictionary(self):
         assert_consistent(self, 'standard_ChainID_bank')
