@@ -7,6 +7,7 @@ Run from the repository root:
 import contextlib
 import gzip
 import io
+import json
 import os
 import pathlib
 import shutil
@@ -602,6 +603,48 @@ class TestStepsKeepFilesConsistent(TempDirTestCase):
         self.assertEqual(pdb_ins, ['?', 'A', '.', '?', '?', 'A'])
         self.assertEqual(_support.mmcif_problems(self.out), [])
 
+
+
+class TestStandardSequencesFile(TempDirTestCase):
+    """OCT2026: Step 4 saves the standard sequences as JSON, so they can be loaded again without editing the file."""
+    STD_SEQS = {'A': 'MAGWK', 'B': 'SKW'}
+
+    def test_saved_file_is_json(self):
+        path = chainstd.save_standard_sequences(self.STD_SEQS, os.path.join(self.tmp, 'out'))
+        self.assertEqual(path, os.path.join(self.tmp, 'out', 'StandardSequences.json'))
+        with open(path) as f:
+            self.assertEqual(json.load(f), self.STD_SEQS)
+
+    def test_load_saved_file(self):
+        path = chainstd.save_standard_sequences(self.STD_SEQS, self.tmp)
+        self.assertEqual(chainstd.load_standard_sequences(path), self.STD_SEQS)
+
+    def test_load_legacy_python_dict(self):
+        # Files made by earlier versions: the dictionary as printed by Python, with single quotes
+        path = self.write('refseqs.txt', str(self.STD_SEQS) + '\n')
+        self.assertEqual(chainstd.load_standard_sequences(path), self.STD_SEQS)
+
+    def test_script_saves_consensus_and_loads_it_again(self):
+        # Step 4 skips chains of 4 residues or fewer: chain A has 6 residues, chain B 5
+        atoms = ''.join('ATOM {0} C CA . {1} {2} 1 {3} ? {4}.000 1.000 1.000 1.00 10.00 {3} {1} {2} CA 1\n'.format(
+                            n + 1, resn, chid, i + 1, n)
+                        for n, (chid, i, resn) in enumerate([('A', i, r) for i, r in enumerate(['MET', 'ALA', 'GLY', 'TRP', 'LYS', 'SER'])] +
+                                                            [('B', i, r) for i, r in enumerate(['SER', 'LYS', 'TRP', 'GLY', 'ALA'])]))
+        source, target = os.path.join(self.tmp, 'in'), os.path.join(self.tmp, 'out')
+        self.write('in/9xyz+01.cif', 'data_9xyz+01\n#\n' + ATOM_HEADER + atoms + '#\n')
+        # 2 = consensus menu, 4 = generate consensus, then quit
+        _support.run_script('CIFcurator_ChainStandardization.py', [source, target], '2\n4\nQUIT\n',
+                            cwd=os.path.join(self.tmp, 'cwd1'), log_path=os.path.join(self.tmp, 'log1'))
+        path = os.path.join(target, 'StandardSequences.json')
+        with open(path) as f:
+            self.assertEqual(json.load(f), {'A': 'MAGWKS', 'B': 'SKWGA'})
+        # 2 = consensus menu, 5 = load a copy of the saved file, then quit: the loaded sequences are saved again
+        refseqs = os.path.join(self.tmp, 'refseqs.json')
+        os.rename(path, refseqs)
+        _support.run_script('CIFcurator_ChainStandardization.py', [source, target], '2\n5\n{0}\nQUIT\n'.format(refseqs),
+                            cwd=os.path.join(self.tmp, 'cwd2'), log_path=os.path.join(self.tmp, 'log2'))
+        with open(path) as f:
+            self.assertEqual(json.load(f), {'A': 'MAGWKS', 'B': 'SKWGA'})
 
 if __name__ == '__main__':
     unittest.main()

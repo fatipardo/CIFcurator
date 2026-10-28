@@ -3,7 +3,7 @@
 #
 from __future__ import print_function
 from __future__ import division
-import sys, glob
+import sys, glob, json
 from CIFcurator import cifcuratorchainstandardizationutils as chainstd
 
 ########################
@@ -24,6 +24,14 @@ target_dir=sys.argv[2]
 filelist=glob.glob(source_dir+'/*.cif')
 Structure_Sequences, structid_list, chid_list = chainstd.pdb_to_structurelists(filelist)
 Standard_Sequences = {}
+
+
+# OCT2026: the standard sequences are saved as JSON in the target directory, so that they
+# can be loaded again with option 2) -> 5) without editing the file
+def save_standard_sequences(Standard_Sequences):
+    if Standard_Sequences:
+        std_seq_file = chainstd.save_standard_sequences(Standard_Sequences, target_dir)
+        print("Standard sequences saved to " + std_seq_file)
 
 
 ############################################
@@ -48,15 +56,18 @@ while(input_menu != "QUIT"):
                                                                                              Standard_Sequences,
                                                                                              structid_list,
                                                                                              input_menu_check_1)
+        save_standard_sequences(Standard_Sequences)
     elif (input_menu == "2"):
         Standard_Sequences, input_menu_check_1 = chainstd.create_standard_seq_from_consensus(Structure_Sequences,
                                                                                              Standard_Sequences,
                                                                                              chid_list,
                                                                                              input_menu_check_1)
         print("These are the standard sequences:")
-        print(Standard_Sequences)
+        print(json.dumps(Standard_Sequences, indent=4))
+        save_standard_sequences(Standard_Sequences)
     elif (input_menu == "3" and input_menu_check_1 == "1"):
         chainstd.review_standard_seq(Structure_Sequences, Standard_Sequences)
+        save_standard_sequences(Standard_Sequences)
 
     elif (input_menu == "4" and input_menu_check_1=="1"):
         chainstd.align_to_std_seq_and_save_to_disk(Structure_Sequences,
