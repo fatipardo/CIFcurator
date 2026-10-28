@@ -21,3 +21,4 @@ dependencies:
   - pip=25.2
   - pip:
       - matching==1.4
+      - rcsb-api==1.7.3
