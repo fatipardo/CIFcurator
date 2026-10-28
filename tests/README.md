@@ -16,7 +16,7 @@ to be installed. They do need its dependencies (biopython, numpy, ...).
 | `test_units.py` | Pure functions: residue-name conversion, gap percentages, alignment scoring, seqres search, CIF cleaning (including the OCT2026 path fix), the CIF writers of Steps 3-5, project directories | nothing (offline, ~1 s) |
 | `test_pipeline.py` | The full workflow, Steps 1 -> 5, on live PDB data | network, `muscle` (v5) on `PATH` |
 
-**Step 1** searches `pdb_seqres.txt` for "triosephosphate isomerase", as in the tutorial.
+**Step 1** searches `pdb_seqres.fasta` (wwPDB beta archive, extended PDB IDs such as `pdb_00001aw1`) for "triosephosphate isomerase", as in the tutorial.
 The number of hits grows as the PDB grows, so the test only checks that five
 long-established entries (1ag1, 1aw1, 1btm, 1klg, 2y62) are still found. It downloads
 them and checks that they are valid mmCIF.
@@ -43,9 +43,9 @@ If a step fails, the later steps are reported as skipped, and the skip message n
 failing step. Each step's full output is in `logs/` inside the work directory (see
 `CIFCURATOR_KEEP_TEST_OUTPUT`).
 
-## pdb_seqres.txt cache
+## pdb_seqres.fasta cache
 
-Step 1 needs `pdb_seqres.txt` (~410 MB). The first run downloads it to `tests/.cache/`,
+Step 1 needs `pdb_seqres.fasta` (~410 MB, downloaded gzipped from the wwPDB beta archive). The first run downloads it to `tests/.cache/`,
 which git ignores. Later runs reuse it until it is 30 days old, then download it again.
 The download goes to a temporary file, so an interrupted download is never mistaken for
 a complete one.
@@ -55,7 +55,7 @@ a complete one.
 | Variable | Effect |
 | --- | --- |
 | `CIFCURATOR_SKIP_NETWORK=1` | skip the pipeline tests (offline / quick run) |
-| `CIFCURATOR_TEST_CACHE=<dir>` | cache directory for `pdb_seqres.txt` (default `tests/.cache`) |
+| `CIFCURATOR_TEST_CACHE=<dir>` | cache directory for `pdb_seqres.fasta` (default `tests/.cache`) |
 | `CIFCURATOR_SEQRES_MAX_AGE_DAYS=<n>` | re-download age (default 30; `0` forces a download) |
 | `CIFCURATOR_KEEP_TEST_OUTPUT=1` | keep the pipeline work directory and print its path |
 | `CIFCURATOR_SCRIPT_TIMEOUT=<s>` | per-script timeout (default 1800). If MUSCLE fails, Steps 4-5 would otherwise wait forever |

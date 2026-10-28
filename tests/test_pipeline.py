@@ -1,14 +1,14 @@
 """
 End-to-end test of the CIFcurator workflow, Steps 1 -> 5, on live PDB data.
 
-Step 1 searches the current pdb_seqres.txt as in the Step 1 tutorial. The number of
+Step 1 searches the current pdb_seqres.fasta of the wwPDB beta archive as in the Step 1 tutorial. The number of
 hits grows over time, so the test does not check the total. It checks that a fixed
 set of long-established TIM entries is still found, downloads only those, and runs
 Steps 2-5 on the freshly downloaded files. This checks that the code still works
 with what the PDB serves today.
 
 Requirements: network access, and `muscle` (v5) on PATH (Steps 4 and 5).
-pdb_seqres.txt (~410 MB) is cached in tests/.cache and re-downloaded after 30 days;
+pdb_seqres.fasta (~410 MB) is cached in tests/.cache and re-downloaded after 30 days;
 see _support.py for the environment variables that control this.
 
 Run from the repository root:
@@ -37,10 +37,12 @@ from CIFcurator import cifcuratormolidcifutils as molidutils  # noqa: E402
 KEYWORD = 'triosephosphate isomerase'
 # Tutorial subset: four TIM structures plus 1klg, an HLA complex that only carries a
 # TIM peptide and must surface as the outlier in Step 3.
-PDB_IDS = ['1ag1', '1aw1', '1btm', '1klg', '2y62']
-OUTLIER = '1klg'
+# OCT2026: extended PDB IDs, as in the wwPDB beta archive (1aw1 -> pdb_00001aw1)
+PDB_IDS = ['pdb_00001ag1', 'pdb_00001aw1', 'pdb_00001btm', 'pdb_00001klg', 'pdb_00002y62']
+OUTLIER = 'pdb_00001klg'
 # Biological assemblies, one file each from Step 1 on (1aw1 has four).
-ASSEMBLIES = ['1ag1+01', '1aw1+01', '1aw1+02', '1aw1+03', '1aw1+04', '1btm+01', '1klg+01', '2y62+01']
+ASSEMBLIES = ['pdb_00001ag1+01', 'pdb_00001aw1+01', 'pdb_00001aw1+02', 'pdb_00001aw1+03', 'pdb_00001aw1+04',
+              'pdb_00001btm+01', 'pdb_00001klg+01', 'pdb_00002y62+01']
 # Step 3 assignment of entity name -> new chain IDs, as in the Step 3 tutorials. The 2y62 assembly
 # is a dimer generated from a one-chain asymmetric unit: its second TIM chain is Ab (copies of a
 # polymer chain A are named Ab, Ac, ...), and its extra ligand copies get M-P.
@@ -48,6 +50,11 @@ MOLID_INPUT = os.path.join(_support.DATA_DIR, 'TIM_input_file.txt')
 OCCUPANCY_THRESHOLD = 75
 # Same alphabet, in the same order, as get_gap_letter() in Step 5.
 GAP_ALPHABET = string.ascii_uppercase + string.ascii_lowercase + string.digits
+
+
+def entry_id(meta):
+    # The extended PDB ID of a fasta description line ('>pdb_00001aw1_A mol:protein ...' -> 'pdb_00001aw1')
+    return pdbutils.get_idset_from_metadata([meta])[0]
 
 
 class Pipeline:
@@ -103,9 +110,9 @@ class Pipeline:
                 KEYWORD, mode='metadata', update=False, seqfile=self.seqfile)
             self.keyword_ids = set(pdbutils.get_idset_from_metadata(ref_metadata))
             # The tutorial runs a sequence search for every reference hit (~650 full scans of
-            # pdb_seqres.txt, close to an hour); here only for those of the test entries.
+            # pdb_seqres.fasta, close to an hour); here only for those of the test entries.
             subset_sequences = sorted({seq for seq, meta in zip(ref_sequences, ref_metadata)
-                                       if meta[1:5] in PDB_IDS})
+                                       if entry_id(meta) in PDB_IDS})
             self.sequence_metadata = []
             for seq in subset_sequences:
                 _, meta = pdbutils.retrieve_sequence_from_PDB(seq, mode='sequence', update=False,
@@ -114,7 +121,7 @@ class Pipeline:
             self.sequence_ids = set(pdbutils.get_idset_from_metadata(self.sequence_metadata))
             cifcurator_io.check_project(projdir=self.root, level='raw_bank')
             pdbutils.download_pdb_from_metadata(
-                [m for m in self.sequence_metadata if m[1:5] in PDB_IDS], projdir=self.root)
+                [m for m in self.sequence_metadata if entry_id(m) in PDB_IDS], projdir=self.root)
 
     def run_step2(self):
         with self.log('step2.log'):
@@ -202,7 +209,8 @@ class TestStep1Download(unittest.TestCase):
 
     def test_seqres_cache_is_fasta(self):
         with open(PIPELINE.seqfile) as f:
-            self.assertTrue(f.readline().startswith('>'))
+            # OCT2026: the beta archive file uses extended PDB IDs
+            self.assertTrue(f.readline().startswith('>pdb_'))
         self.assertGreater(os.path.getsize(PIPELINE.seqfile), 100 * 1024 * 1024)
 
     def test_keyword_search_finds_known_entries(self):
@@ -249,7 +257,7 @@ class TestStep2Clean(unittest.TestCase):
             with self.subTest(assembly=name):
                 with open(PIPELINE.path('clean_bank', name + '.cif')) as f:
                     text = f.read()
-                self.assertIn("_entry.id   '{0}'".format(name[:4].upper()), text)
+                self.assertIn("_entry.id   '{0}'".format(name.split('+')[0]), text)
 
     def test_consistent_with_mmcif_dictionary(self):
         assert_consistent(self, 'clean_bank')
@@ -264,7 +272,7 @@ class TestStep3MolID(unittest.TestCase):
         with PIPELINE.log('step3_entities.log'):
             master = molidutils.pdb_to_masterlist(glob.glob(PIPELINE.path('clean_bank', '*.cif')))
         files_by_entity = molidutils.CreateMasterUniqueMolIDMapWithFileName(master)
-        cls.files_by_entity = {e: {os.path.basename(f)[:4] for f in files} for e, files in files_by_entity.items()}
+        cls.files_by_entity = {e: {os.path.basename(f).split('+')[0] for f in files} for e, files in files_by_entity.items()}
 
     def test_outlier_has_entities_no_other_structure_has(self):
         only_outlier = [e for e, ids in self.files_by_entity.items() if ids == {OUTLIER}]
@@ -315,13 +323,13 @@ class TestStep4ChainID(unittest.TestCase):
             with self.subTest(structure=name, chain=old):
                 self.assertGreaterEqual(score, 0.0)
                 self.assertLessEqual(score, 1.0)
-                if name.startswith('1aw1'):
+                if name.startswith('pdb_00001aw1'):
                     # 1aw1 has four assemblies, so it dominates the consensus.
                     self.assertEqual(score, 1.0)
 
     def test_different_organism_scores_lower(self):
         # 1btm (B. stearothermophilus) vs the 1aw1-dominated consensus: the outlier signal.
-        best_1btm = max(r[3] for r in self.records if r[0].startswith('1btm'))
+        best_1btm = max(r[3] for r in self.records if r[0].startswith('pdb_00001btm'))
         self.assertLess(best_1btm, 0.6)
 
     def test_renamed_chains_exist_in_output(self):
@@ -384,7 +392,7 @@ class TestStep5ResidueID(unittest.TestCase):
         # must put the same residue type at the same number in all of them.
         by_position = defaultdict(set)
         for s in self.structures:
-            if s.startswith('1aw1'):
+            if s.startswith('pdb_00001aw1'):
                 for chain, num, auth, ins, comp in self.after[s]:
                     by_position[(chain, auth, ins)].add(comp)
         self.assertTrue(by_position)

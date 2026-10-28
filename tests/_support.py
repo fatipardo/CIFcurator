@@ -7,8 +7,8 @@ package (so the tests always exercise this checkout, not an installed copy).
 Environment variables
 ---------------------
 CIFCURATOR_SKIP_NETWORK=1         skip the pipeline tests (they download from the PDB)
-CIFCURATOR_TEST_CACHE=<dir>       where pdb_seqres.txt is cached (default: tests/.cache)
-CIFCURATOR_SEQRES_MAX_AGE_DAYS=N  re-download pdb_seqres.txt when older than N days (default: 30)
+CIFCURATOR_TEST_CACHE=<dir>       where pdb_seqres.fasta is cached (default: tests/.cache)
+CIFCURATOR_SEQRES_MAX_AGE_DAYS=N  re-download pdb_seqres.fasta when older than N days (default: 30)
 CIFCURATOR_KEEP_TEST_OUTPUT=1     keep the pipeline work directory after the run
 CIFCURATOR_SCRIPT_TIMEOUT=<sec>   timeout for each interactive script (default: 1800)
 """
@@ -59,7 +59,7 @@ def quiet_known_warnings():
 
 def seqres_file():
     """
-    Return the path to a cached pdb_seqres.txt, downloading it the first time
+    Return the path to a cached pdb_seqres.fasta (wwPDB beta archive, extended PDB IDs), downloading it the first time
     or when the cached copy is older than SEQRES_MAX_AGE_DAYS.
 
     The download goes to a temporary name and is renamed only once complete, so an
@@ -69,7 +69,7 @@ def seqres_file():
     """
     from CIFcurator import pdbutils
     os.makedirs(CACHE_DIR, exist_ok=True)
-    path = os.path.join(CACHE_DIR, 'pdb_seqres.txt')
+    path = os.path.join(CACHE_DIR, 'pdb_seqres.fasta')  # OCT2026: not .txt, so a legacy cache is not reused
     if os.path.isfile(path):
         age_days = (time.time() - os.path.getmtime(path)) / 86400
         if age_days < SEQRES_MAX_AGE_DAYS:
@@ -81,7 +81,7 @@ def seqres_file():
         with open(partial) as f:
             first = f.readline()
         if not first.startswith('>'):
-            raise RuntimeError('Downloaded pdb_seqres.txt does not look like FASTA: {0!r}'.format(first[:80]))
+            raise RuntimeError('Downloaded pdb_seqres.fasta does not look like FASTA: {0!r}'.format(first[:80]))
         os.replace(partial, path)
     finally:
         if os.path.exists(partial):
