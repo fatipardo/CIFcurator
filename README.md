@@ -1,3 +1,7 @@
+# WARNING
+
+We are currently working on creating a new and improved CIFcurator, this version of the code is unstable. If you want to use CIFcurator, use our latest stable release [v.1.0.1](https://github.com/fatipardo/CIFcurator/releases/tag/v.1.0.1). 
+
 # CIFcurator 
 
 With CIFcurator, users can create their own self-consistent structure dataset, enabling more straightforward comparison among structures. The library creates separate files for each biological assembly present in a structure file and standardizes chain names and numbering. Our goal is to provide researchers with a consistent dataset that facilitates their analysis.
