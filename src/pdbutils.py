@@ -9,13 +9,62 @@ from urllib.request import urlopen
 from urllib.error import HTTPError, ContentTooShortError
 from contextlib import closing, suppress
 #
-ASSEMBLY_URL='https://files.wwpdb.org/pub/pdb/data/assemblies/mmCIF/all/'
+# OCT2026: files come from the wwPDB beta archive, which uses the extended PDB IDs (pdb_00001aw1)
+# and will replace the current archive on July 21, 2027 (https://www.wwpdb.org/ftp/pdb-beta-ftp-sites)
+ARCHIVE_URL='https://files-beta.wwpdb.org/pub/wwpdb/pdb/'
+DOWNLOAD_URL='https://files-beta.wwpdb.org/download/'
+#
+def extended_pdbid(pdbid):
+    """
+    Returns a PDB ID in the extended format of the wwPDB beta archive: lower case, 'pdb_' followed by
+    eight characters. A legacy four-character ID is padded with zeros ('1AW1' -> 'pdb_00001aw1').
+
+    Parameters:
+    -----------
+    pdbid : str
+        A legacy (e.g. '1aw1') or extended (e.g. 'PDB_00001AW1') PDB ID.
+
+    Returns:
+    --------
+    pdbid : str
+        The extended PDB ID, e.g. 'pdb_00001aw1'.
+
+    Raises:
+    -------
+    ValueError
+        If pdbid is neither a legacy nor an extended PDB ID.
+    """
+    pdbid = pdbid.strip().lower()
+    if re.fullmatch(r'[0-9a-z]{4}', pdbid):
+        return 'pdb_0000' + pdbid
+    if re.fullmatch(r'pdb_[0-9a-z]{8}', pdbid):
+        return pdbid
+    raise ValueError('not a PDB ID: {0!r}'.format(pdbid))
+
+def entry_url(pdbid):
+    """
+    Returns the URL of the directory holding all the files of a PDB entry in the wwPDB beta archive.
+    Entries are grouped by the two characters before the last one (pdb_00001aw1 -> entries/aw/pdb_00001aw1/).
+
+    Parameters:
+    -----------
+    pdbid : str
+        A legacy or extended PDB ID.
+
+    Returns:
+    --------
+    url : str
+        The URL of the entry directory, ending with '/'.
+    """
+    pdbid = extended_pdbid(pdbid)
+    return ARCHIVE_URL+'data/entries/'+pdbid[-3:-1]+'/'+pdbid+'/'
 #
 def download_pdb_from_metadata(metadata, projdir=None):
     """
     Downloads all the biological assemblies of the PDB entries found in the metadata, in this case
     the description lines of the fasta files, and saves them in the specified project directory.
-    Each assembly is saved as its own file: PDBID+NN.cif, where NN is the two-digit assembly number
+    Each assembly is saved as its own file: PDBID+NN.cif, where PDBID is the extended PDB ID
+    (pdb_00001aw1) and NN is the two-digit assembly number
 
     Parameters:
     -----------
@@ -40,14 +89,15 @@ def download_pdb_from_metadata(metadata, projdir=None):
 
 def download_pdb_from_id(pdbid, pdbformat='.cif', download_dir=None):
     """
-    Downloads a specific PDB file using its ID and saves it in the specified directory.
+    Downloads a specific PDB file using its ID from the wwPDB beta archive, and saves it, decompressed,
+    in the specified directory as PDBID.cif, where PDBID is the extended PDB ID (pdb_00001aw1.cif).
 
     Parameters:
     -----------
     pdbid : str
-        The PDB ID of the file that will be downloaded.
+        The PDB ID (legacy or extended) of the file that will be downloaded.
     pdbformat : str, optional
-        The format of the PDB file to be downloaded. Default is '.cif'.
+        The format of the PDB file to be downloaded ('.cif' or '.pdb'). Default is '.cif'.
      download_dir : str, optional
         The directory where the downloaded file will be saved. If None, a message will display.
 
@@ -55,61 +105,52 @@ def download_pdb_from_id(pdbid, pdbformat='.cif', download_dir=None):
     --------
     None
     """
-    download_url='https://files.rcsb.org/download/'
     if download_dir is None:
         print("Please provide a directory where to store downloaded files...")
     else:
+        pdbid = extended_pdbid(pdbid)
         target = download_dir+'/'+pdbid+pdbformat
-        source = download_url+pdbid.upper()+pdbformat
-        download_from_url(source, target)
+        source = DOWNLOAD_URL+pdbid+pdbformat+'.gz'
+        download_from_url(source, target, gunzip=True)
 
 def list_assemblies_from_id(pdbid):
     """
-    Lists the biological assembly files available in the wwPDB archive for a specific PDB ID.
-
-    The 'all' directory listing is truncated by the server, so the list is read from the
-    'divided' directory, which groups the files by the middle two characters of the PDB ID.
-    If that listing is truncated too, the assemblies are found by trying assembly1, assembly2, ...
+    Lists the biological assembly files available in the wwPDB beta archive for a specific PDB ID,
+    read from the 'assemblies' directory of the entry.
 
     Parameters:
     -----------
     pdbid : str
-        The PDB ID of the entry.
+        The PDB ID (legacy or extended) of the entry.
 
     Returns:
     --------
     filenames : list of str
-        The assembly file names (e.g. '1aw1-assembly1.cif.gz'), sorted by assembly number.
+        The assembly file names (e.g. 'pdb_00001aw1-assembly1.cif.gz'), sorted by assembly number.
+        Empty if the entry has no assemblies directory.
     """
-    pdbid = pdbid.lower()
-    index_url = 'https://files.wwpdb.org/pub/pdb/data/assemblies/mmCIF/divided/'+pdbid[1:3]+'/'
-    with closing(urlopen(index_url)) as r:
-        listing = r.read().decode('utf-8', errors='replace')
-    if 'truncated' not in listing.lower():
-        found = re.findall(r'href="(' + pdbid + r'-assembly(\d+)\.cif\.gz)"', listing)
-        return [name for name, num in sorted(set(found), key=lambda x: int(x[1]))]
-    filenames = []
-    while True:
-        name = '{0}-assembly{1}.cif.gz'.format(pdbid, len(filenames)+1)
-        try:
-            with closing(urlopen(ASSEMBLY_URL+name)):
-                pass
-        except HTTPError as e:
-            if e.code == 404:
-                return filenames
-            raise
-        filenames.append(name)
+    pdbid = extended_pdbid(pdbid)
+    try:
+        with closing(urlopen(entry_url(pdbid)+'assemblies/')) as r:
+            listing = r.read().decode('utf-8', errors='replace')
+    except HTTPError as e:
+        if e.code == 404:
+            return []
+        raise
+    found = re.findall(r'href="(' + pdbid + r'-assembly(\d+)\.cif\.gz)"', listing)
+    return [name for name, num in sorted(set(found), key=lambda x: int(x[1]))]
 
 def download_assemblies_from_id(pdbid, download_dir=None):
     """
-    Downloads all the biological assemblies of a specific PDB ID from the wwPDB archive,
-    decompresses them and saves them in the specified directory as PDBID+NN.cif, where NN is the
-    assembly number written with two digits (1aw1-assembly3.cif.gz -> 1aw1+03.cif)
+    Downloads all the biological assemblies of a specific PDB ID from the wwPDB beta archive,
+    decompresses them and saves them in the specified directory as PDBID+NN.cif, where PDBID is the
+    extended PDB ID and NN is the assembly number written with two digits
+    (pdb_00001aw1-assembly3.cif.gz -> pdb_00001aw1+03.cif)
 
     Parameters:
     -----------
     pdbid : str
-        The PDB ID of the entry whose assemblies will be downloaded.
+        The PDB ID (legacy or extended) of the entry whose assemblies will be downloaded.
     download_dir : str, optional
         The directory where the downloaded files will be saved. If None, a message will display.
 
@@ -120,13 +161,14 @@ def download_assemblies_from_id(pdbid, download_dir=None):
     if download_dir is None:
         print("Please provide a directory where to store downloaded files...")
     else:
+        pdbid = extended_pdbid(pdbid)
         filenames = list_assemblies_from_id(pdbid)
         if not filenames:
             print('WARNING: no assemblies found for {0}'.format(pdbid))
         for name in filenames:
             number = int(re.search(r'-assembly(\d+)\.cif\.gz$', name).group(1))
-            target = download_dir+'/{0}+{1:02d}.cif'.format(pdbid.lower(), number)
-            download_from_url(ASSEMBLY_URL+name, target, gunzip=True)
+            target = download_dir+'/{0}+{1:02d}.cif'.format(pdbid, number)
+            download_from_url(entry_url(pdbid)+'assemblies/'+name, target, gunzip=True)
 
 def get_idset_from_metadata(metadata):
     """
@@ -135,16 +177,17 @@ def get_idset_from_metadata(metadata):
     Parameters:
     -----------
     metadata : list of str
-        A list of metadata strings, each containing a PDB ID.
+        A list of metadata strings (fasta description lines), each starting with PDBID_CHAIN,
+        e.g. '>pdb_00001aw1_A mol:protein ...'. Legacy IDs ('>1aw1_A ...') are also accepted.
 
     Returns:
     --------
     idlist : list of str
-        A sorted list of unique PDB IDs extracted from the metadata.
+        A sorted list of unique extended PDB IDs extracted from the metadata.
     """
     idlist = []
     for elt in metadata:
-        idlist.append(elt[1:5])
+        idlist.append(extended_pdbid(elt.lstrip('>').split()[0].rsplit('_', 1)[0]))
     return sorted(set(idlist))
 
 #
@@ -197,7 +240,7 @@ def retrieve_sequence_from_PDB(keyword, mode='sequence', update=True, seqfile=No
 #
 def retrieve_seqfile(seqfile=None):
     """
-    Downloads the PDB sequence file from the official RCSB FTP site.
+    Downloads the PDB sequence file (pdb_seqres.fasta.gz) from the wwPDB beta archive and decompresses it.
 
     Parameters:
     -----------
@@ -210,10 +253,11 @@ def retrieve_seqfile(seqfile=None):
         The path to the downloaded sequence file.
     """
     #sequrl='ftp://ftp.wwpdb.org/pub/pdb/derived_data/pdb_seqres.txt' FAPA CHANGED ADDRESS FEB 2025
-    sequrl='https://files.wwpdb.org/pub/pdb/derived_data/pdb_seqres.txt'
+    #sequrl='https://files.wwpdb.org/pub/pdb/derived_data/pdb_seqres.txt' OCT2026: beta archive, extended PDB IDs
+    sequrl=ARCHIVE_URL+'derived_data/pdb_seqres.fasta.gz'
     if seqfile is None:
         seqfile='seqfile.txt'
-    download_from_url(sequrl, seqfile)
+    download_from_url(sequrl, seqfile, gunzip=True)
     return seqfile
 #
 def download_from_url(source, target, gunzip=False):

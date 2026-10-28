@@ -213,24 +213,44 @@ class TestScoreSequenceAlignment(unittest.TestCase):
 
 
 class TestPdbUtils(TempDirTestCase):
-    SEQRES = (">101m_A mol:protein length:154  MYOGLOBIN\n"
+    # As in the wwPDB beta archive pdb_seqres.fasta.gz (extended PDB IDs)
+    SEQRES = (">pdb_0000101m_A mol:protein length:154  MYOGLOBIN\n"
               "MVLSEGEWQLVLHVWAKVEAD\n"
-              ">1aw1_A mol:protein length:255  TRIOSEPHOSPHATE ISOMERASE\n"
+              ">pdb_00001aw1_A mol:protein length:255  TRIOSEPHOSPHATE ISOMERASE\n"
               "ARKFFVGGNWKMNGDKK\n"
-              ">1aw1_B mol:protein length:255  TRIOSEPHOSPHATE ISOMERASE\n"
+              ">pdb_00001aw1_B mol:protein length:255  TRIOSEPHOSPHATE ISOMERASE\n"
               "ARKFFVGGNWKMNGDKK\n"
-              ">2y62_A mol:protein length:251  Triosephosphate isomerase\n"
+              ">pdb_00002y62_A mol:protein length:251  Triosephosphate isomerase\n"
               "MAPRKFFVGGNWKMNG\n")
+    IDS = ['pdb_00001aw1', 'pdb_00002y62']
+
+    def test_extended_pdbid(self):
+        for pdbid in ['1aw1', '1AW1', 'pdb_00001aw1', 'PDB_00001AW1', ' 1aw1\n']:
+            with self.subTest(pdbid=pdbid):
+                self.assertEqual(pdbutils.extended_pdbid(pdbid), 'pdb_00001aw1')
+        for bad in ['1aw', 'pdb_1aw1', 'pdb_00001aw1x', '1aw1+01']:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                pdbutils.extended_pdbid(bad)
+
+    def test_entry_url_hashes_on_characters_before_the_last(self):
+        self.assertEqual(pdbutils.entry_url('1AW1'),
+                         'https://files-beta.wwpdb.org/pub/wwpdb/pdb/data/entries/aw/pdb_00001aw1/')
+        self.assertEqual(pdbutils.entry_url('pdb_1abc5678'),
+                         'https://files-beta.wwpdb.org/pub/wwpdb/pdb/data/entries/67/pdb_1abc5678/')
 
     def test_get_idset_from_metadata(self):
-        meta = ['>1aw1_B mol:protein', '>2y62_A mol:protein', '>1aw1_A mol:protein']
-        self.assertEqual(pdbutils.get_idset_from_metadata(meta), ['1aw1', '2y62'])
+        meta = ['>pdb_00001aw1_B mol:protein', '>pdb_00002y62_A mol:protein', '>pdb_00001aw1_A mol:protein']
+        self.assertEqual(pdbutils.get_idset_from_metadata(meta), self.IDS)
+
+    def test_get_idset_from_legacy_metadata(self):
+        meta = ['>1aw1_B mol:protein', '>2y62_A mol:protein', '>pdb_00001aw1_A mol:protein']
+        self.assertEqual(pdbutils.get_idset_from_metadata(meta), self.IDS)
 
     def test_keyword_search_is_case_insensitive_and_returns_next_line(self):
         seqfile = self.write('seqres.txt', self.SEQRES)
         seqs, meta = pdbutils.retrieve_sequence_from_PDB('triosephosphate isomerase', mode='metadata',
                                                          update=False, seqfile=seqfile)
-        self.assertEqual(pdbutils.get_idset_from_metadata(meta), ['1aw1', '2y62'])
+        self.assertEqual(pdbutils.get_idset_from_metadata(meta), self.IDS)
         self.assertEqual([s.strip() for s in seqs], ['ARKFFVGGNWKMNGDKK', 'ARKFFVGGNWKMNGDKK', 'MAPRKFFVGGNWKMNG'])
 
     def test_sequence_search_returns_preceding_header(self):
@@ -238,7 +258,7 @@ class TestPdbUtils(TempDirTestCase):
         seqs, meta = pdbutils.retrieve_sequence_from_PDB('FFVGGNWKMNG', mode='sequence',
                                                          update=False, seqfile=seqfile)
         self.assertEqual(len(seqs), 3)
-        self.assertEqual(pdbutils.get_idset_from_metadata(meta), ['1aw1', '2y62'])
+        self.assertEqual(pdbutils.get_idset_from_metadata(meta), self.IDS)
 
     def test_download_from_url(self):
         src = pathlib.Path(self.write('remote/file.cif', 'data_TEST\n'))
@@ -287,10 +307,17 @@ class TestPdbUtils(TempDirTestCase):
             self.assertEqual(f.read(), full)
         self.assertEqual(os.listdir(self.tmp), ['local.cif'])
 
-    def test_download_pdb_from_id_builds_rcsb_url(self):
+    def test_download_pdb_from_id_builds_beta_url(self):
         with mock.patch.object(pdbutils, 'download_from_url') as dl:
-            pdbutils.download_pdb_from_id('1aw1', download_dir='/some/dir')
-        dl.assert_called_once_with('https://files.rcsb.org/download/1AW1.cif', '/some/dir/1aw1.cif')
+            pdbutils.download_pdb_from_id('1AW1', download_dir='/some/dir')
+        dl.assert_called_once_with('https://files-beta.wwpdb.org/download/pdb_00001aw1.cif.gz',
+                                   '/some/dir/pdb_00001aw1.cif', gunzip=True)
+
+    def test_retrieve_seqfile_from_beta_archive(self):
+        with mock.patch.object(pdbutils, 'download_from_url') as dl:
+            pdbutils.retrieve_seqfile(seqfile='/some/dir/seqres.txt')
+        dl.assert_called_once_with('https://files-beta.wwpdb.org/pub/wwpdb/pdb/derived_data/pdb_seqres.fasta.gz',
+                                   '/some/dir/seqres.txt', gunzip=True)
 
     def test_download_from_url_gunzip(self):
         src = os.path.join(self.tmp, 'remote.cif.gz')
@@ -302,24 +329,30 @@ class TestPdbUtils(TempDirTestCase):
         with open(target) as f:
             self.assertEqual(f.read(), 'data_TEST\n')
 
-    def test_list_assemblies_reads_divided_listing(self):
-        listing = ('<a href="1aw0-assembly1.cif.gz">x</a><a href="1aw1-assembly10.cif.gz">x</a>'
-                   '<a href="1aw1-assembly2.cif.gz">x</a><a href="1aw1-assembly1.cif.gz">x</a>')
+    def test_list_assemblies_reads_entry_listing(self):
+        listing = ('<a href="../">x</a><a href="pdb_00001aw1-assembly10.cif.gz">x</a>'
+                   '<a href="pdb_00001aw1-assembly2.cif.gz">x</a><a href="pdb_00001aw1-assembly1.cif.gz">x</a>')
         with mock.patch.object(pdbutils, 'urlopen', return_value=io.BytesIO(listing.encode())) as op:
             names = pdbutils.list_assemblies_from_id('1AW1')
-        op.assert_called_once_with('https://files.wwpdb.org/pub/pdb/data/assemblies/mmCIF/divided/aw/')
-        self.assertEqual(names, ['1aw1-assembly1.cif.gz', '1aw1-assembly2.cif.gz', '1aw1-assembly10.cif.gz'])
+        op.assert_called_once_with('https://files-beta.wwpdb.org/pub/wwpdb/pdb/data/entries/aw/pdb_00001aw1/assemblies/')
+        self.assertEqual(names, ['pdb_00001aw1-assembly1.cif.gz', 'pdb_00001aw1-assembly2.cif.gz',
+                                 'pdb_00001aw1-assembly10.cif.gz'])
 
-    def test_download_assemblies_from_id_builds_wwpdb_urls(self):
-        names = ['1aw1-assembly1.cif.gz', '1aw1-assembly2.cif.gz', '1aw1-assembly10.cif.gz']
+    def test_list_assemblies_of_entry_without_assemblies(self):
+        missing = pdbutils.HTTPError('https://example.org/', 404, 'Not Found', {}, None)
+        with mock.patch.object(pdbutils, 'urlopen', side_effect=missing):
+            self.assertEqual(pdbutils.list_assemblies_from_id('pdb_00001aw1'), [])
+
+    def test_download_assemblies_from_id_builds_beta_urls(self):
+        names = ['pdb_00001aw1-assembly1.cif.gz', 'pdb_00001aw1-assembly2.cif.gz', 'pdb_00001aw1-assembly10.cif.gz']
         with mock.patch.object(pdbutils, 'list_assemblies_from_id', return_value=names), \
                 mock.patch.object(pdbutils, 'download_from_url') as dl:
             pdbutils.download_assemblies_from_id('1aw1', download_dir='/some/dir')
-        url = 'https://files.wwpdb.org/pub/pdb/data/assemblies/mmCIF/all/'
+        url = 'https://files-beta.wwpdb.org/pub/wwpdb/pdb/data/entries/aw/pdb_00001aw1/assemblies/'
         self.assertEqual(dl.call_args_list, [
-            mock.call(url + '1aw1-assembly1.cif.gz', '/some/dir/1aw1+01.cif', gunzip=True),
-            mock.call(url + '1aw1-assembly2.cif.gz', '/some/dir/1aw1+02.cif', gunzip=True),
-            mock.call(url + '1aw1-assembly10.cif.gz', '/some/dir/1aw1+10.cif', gunzip=True)])
+            mock.call(url + 'pdb_00001aw1-assembly1.cif.gz', '/some/dir/pdb_00001aw1+01.cif', gunzip=True),
+            mock.call(url + 'pdb_00001aw1-assembly2.cif.gz', '/some/dir/pdb_00001aw1+02.cif', gunzip=True),
+            mock.call(url + 'pdb_00001aw1-assembly10.cif.gz', '/some/dir/pdb_00001aw1+10.cif', gunzip=True)])
 
 
 class TestRunScript(TempDirTestCase):
@@ -467,6 +500,15 @@ class TestCleanAssemblyFile(TempDirTestCase):
         self.assertNotIn('XXXX', text)
         (exptl,) = _support.cif_columns(os.path.join(bank, '9xyz+01.cif'), '_exptl.entry_id')
         self.assertEqual(exptl, ['9XYZ'])
+
+    def test_extended_entry_id_stays_lower_case(self):
+        # As in the wwPDB beta archive entries: _entry.id pdb_00001aw1
+        bank = self.clean_bank(['pdb_00009xyz+01.cif'])
+        with open(os.path.join(bank, 'pdb_00009xyz+01.cif')) as f:
+            text = f.read()
+        self.assertTrue(text.startswith('data_pdb_00009xyz+01\n'))
+        self.assertIn("_entry.id   'pdb_00009xyz'", text)
+        self.assertNotIn('XXXX', text)
 
     def test_consistent_with_mmcif_dictionary(self):
         bank = self.clean_bank(['9xyz+01.cif'])
