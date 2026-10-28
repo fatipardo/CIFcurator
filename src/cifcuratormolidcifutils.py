@@ -1680,7 +1680,15 @@ def masterlist_to_pdb(filelist, masterlist, target_dir=None):
             with open(newciffilename, 'w') as newciffile:
                 for molID_class in masterlist:
                     if (molID_class.file_name == myfile.name):
+                        category = None # OCT2026
+                        written_asym_ids = set() # OCT2026
                         for line in myfile:
+                            # OCT2026: track the category, to find the rows of struct_asym and pdbx_poly_seq_scheme
+                            if line.startswith('_'):
+                                category = line.split('.')[0]
+                            elif line.startswith('#'):
+                                category = None
+                            is_row = category is not None and not line.startswith(('_', 'loop_')) and line.split() != []
                             if (line[0:4] == "ATOM") or (line[0:6]=="HETATM"):
                                 # Chains outside map should not exist but just in case
                                 line_split = line.split()
@@ -1698,6 +1706,29 @@ def masterlist_to_pdb(filelist, masterlist, target_dir=None):
 
                                 else:
                                     newciffile.write(line)
+
+                            # OCT2026: same chain IDs in struct_asym (one row per chain: concatenated chains share it)
+                            elif category == '_struct_asym' and is_row:
+                                line_split = line.split()
+                                if line_split[0] in molID_class.chID_newchID_map:
+                                    line_split[0] = molID_class.chID_newchID_map[line_split[0]]
+                                if line_split[0] not in written_asym_ids:
+                                    written_asym_ids.add(line_split[0])
+                                    newciffile.write(" ".join(line_split) + "\n")
+
+                            # OCT2026: same chain IDs and author residue numbers in pdbx_poly_seq_scheme
+                            # (asym_id, pdb_seq_num, auth_seq_num, pdb_strand_id: columns 0, 5, 6 and 9)
+                            elif category == '_pdbx_poly_seq_scheme' and is_row:
+                                line_split = line.split()
+                                if line_split[0] in molID_class.chID_newchID_map:
+                                    if line_split[0] in molID_class.concat_order:
+                                        residue_offset = (molID_class.concat_order[line_split[0]] - 1) * 50000
+                                        for column in (5, 6):
+                                            if line_split[column] not in ('?', '.'):
+                                                line_split[column] = str(int(line_split[column]) + int(residue_offset))
+                                    line_split[0] = molID_class.chID_newchID_map[line_split[0]]
+                                    line_split[9] = line_split[0]
+                                newciffile.write(" ".join(line_split) + "\n")
 
                             else:
                                 newciffile.write(line)

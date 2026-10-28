@@ -39,9 +39,11 @@ KEYWORD = 'triosephosphate isomerase'
 # TIM peptide and must surface as the outlier in Step 3.
 PDB_IDS = ['1ag1', '1aw1', '1btm', '1klg', '2y62']
 OUTLIER = '1klg'
-# Biological assemblies Step 2 must produce (1aw1 has four).
-ASSEMBLIES = ['1ag1+00', '1aw1+01', '1aw1+02', '1aw1+03', '1aw1+04', '1btm+00', '1klg+00', '2y62+00']
-# Step 3 assignment of entity name -> new chain IDs, as in the Step 3 tutorials.
+# Biological assemblies, one file each from Step 1 on (1aw1 has four).
+ASSEMBLIES = ['1ag1+01', '1aw1+01', '1aw1+02', '1aw1+03', '1aw1+04', '1btm+01', '1klg+01', '2y62+01']
+# Step 3 assignment of entity name -> new chain IDs, as in the Step 3 tutorials. The 2y62 assembly
+# is a dimer generated from a one-chain asymmetric unit: its second TIM chain is Ab (copies of a
+# polymer chain A are named Ab, Ac, ...), and its extra ligand copies get M-P.
 MOLID_INPUT = os.path.join(_support.DATA_DIR, 'TIM_input_file.txt')
 OCCUPANCY_THRESHOLD = 75
 # Same alphabet, in the same order, as get_gap_letter() in Step 5.
@@ -117,20 +119,19 @@ class Pipeline:
     def run_step2(self):
         with self.log('step2.log'):
             cifcurator_io.check_project(projdir=self.root, level='clean_bank')
+            # OCT2026: clean and simplify are a single step
             cleanutils.process(projdir=self.root, step='clean', source='raw_bank', target='clean_bank')
-            cifcurator_io.check_project(projdir=self.root, level='simple_bank')
-            cleanutils.process(projdir=self.root, step='simplify', source='clean_bank', target='simple_bank')
 
     def run_step3(self):
         # As in the tutorial: drop the outlier, then assign chain IDs from the input file.
-        os.mkdir(self.path('simple_bank_sub'))
-        for f in glob.glob(self.path('simple_bank', '*.cif')):
+        os.mkdir(self.path('clean_bank_sub'))
+        for f in glob.glob(self.path('clean_bank', '*.cif')):
             if not os.path.basename(f).startswith(OUTLIER):
-                shutil.copy(f, self.path('simple_bank_sub'))
+                shutil.copy(f, self.path('clean_bank_sub'))
         os.mkdir(self.path('standard_MolID_bank'))
         # 3 = enter input file, A = write track-changes CSV, 7 = continue, 6 = finalize
         self.run_script('step3', 'CIFcurator_MolID.py',
-                        [self.path('simple_bank_sub'), self.path('standard_MolID_bank')],
+                        [self.path('clean_bank_sub'), self.path('standard_MolID_bank')],
                         '3\n{0}\nA\n7\n6\n'.format(MOLID_INPUT))
 
     def run_step4(self):
@@ -170,15 +171,22 @@ def cif_files(bank):
 
 
 def residues(path):
-    """Ordered list of (chain, label_seq_id, ins_code, comp_id) for polymer residues of a CIF."""
-    group, asym, seq, ins, comp = _support.cif_columns(
+    """Ordered list of (chain, label_seq_id, auth_seq_id, ins_code, comp_id) for polymer residues of a CIF."""
+    group, asym, seq, auth, ins, comp = _support.cif_columns(
         path, '_atom_site.group_PDB', '_atom_site.label_asym_id', '_atom_site.label_seq_id',
-        '_atom_site.pdbx_PDB_ins_code', '_atom_site.label_comp_id')
+        '_atom_site.auth_seq_id', '_atom_site.pdbx_PDB_ins_code', '_atom_site.label_comp_id')
     out = []
-    for row in zip(group, asym, seq, ins, comp):
+    for row in zip(group, asym, seq, auth, ins, comp):
         if row[0] == 'ATOM' and (not out or out[-1] != row[1:]):
             out.append(row[1:])
     return out
+
+
+def assert_consistent(test, bank):
+    """OCT2026 reviewer: every file must have the categories and key items its data require."""
+    for name in cif_files(bank):
+        with test.subTest(bank=bank, structure=name):
+            test.assertEqual(_support.mmcif_problems(PIPELINE.path(bank, name + '.cif')), [])
 
 
 def residue_order(num, ins):
@@ -207,47 +215,44 @@ class TestStep1Download(unittest.TestCase):
         self.assertTrue(all(m.startswith('>') for m in PIPELINE.sequence_metadata))
 
     def test_downloaded_files_are_valid_mmcif(self):
-        self.assertEqual(cif_files('raw_bank'), PDB_IDS)
-        for pdbid in PDB_IDS:
-            with self.subTest(pdbid=pdbid):
-                path = PIPELINE.path('raw_bank', pdbid + '.cif')
-                entry, asm, atoms = _support.cif_columns(
-                    path, '_entry.id', '_pdbx_struct_assembly_gen.assembly_id', '_atom_site.id')
-                self.assertEqual(entry, [pdbid.upper()])
-                self.assertGreater(len(asm), 0)
+        # One file per biological assembly, straight from the wwPDB assemblies archive, saved as PDBID+NN.
+        names = cif_files('raw_bank')
+        self.assertEqual(names, ASSEMBLIES)
+        for name in names:
+            with self.subTest(name=name):
+                (atoms,) = _support.cif_columns(PIPELINE.path('raw_bank', name + '.cif'), '_atom_site.id')
                 self.assertGreater(len(atoms), 100)
 
 
-class TestStep2Simplify(unittest.TestCase):
+class TestStep2Clean(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         PIPELINE.require('step2')
 
-    def test_clean_keeps_every_atom(self):
-        self.assertEqual(cif_files('clean_bank'), PDB_IDS)
-        for pdbid in PDB_IDS:
-            with self.subTest(pdbid=pdbid):
-                (raw,) = _support.cif_columns(PIPELINE.path('raw_bank', pdbid + '.cif'), '_atom_site.id')
-                (clean,) = _support.cif_columns(PIPELINE.path('clean_bank', pdbid + '.cif'), '_atom_site.id')
-                self.assertEqual(raw, clean)
-
     def test_one_file_per_biological_assembly(self):
         # Also the regression test for the OCT2026 path fix: the work directory contains "cif".
-        self.assertEqual(cif_files('simple_bank'), ASSEMBLIES)
+        self.assertEqual(cif_files('clean_bank'), ASSEMBLIES)
 
-    def test_assembly_files_contain_only_their_chains(self):
+    def test_assembly_files_keep_every_atom(self):
+        # Each wwPDB assembly file already is one assembly: Step 2 rewrites it whole, under the same name.
         for name in ASSEMBLIES:
-            pdbid, n = name.split('+')
             with self.subTest(assembly=name):
-                asm_ids, asym_lists = _support.cif_columns(
-                    PIPELINE.path('clean_bank', pdbid + '.cif'),
-                    '_pdbx_struct_assembly_gen.assembly_id', '_pdbx_struct_assembly_gen.asym_id_list')
-                index = 0 if n == '00' else asm_ids.index(str(int(n)))
-                expected = set(asym_lists[index].split(','))
-                (asym,) = _support.cif_columns(PIPELINE.path('simple_bank', name + '.cif'),
-                                               '_atom_site.label_asym_id')
-                self.assertGreater(len(asym), 0)
-                self.assertLessEqual(set(asym), expected)
+                raw = _support.cif_columns(PIPELINE.path('raw_bank', name + '.cif'),
+                                           '_atom_site.id', '_atom_site.label_asym_id')
+                clean = _support.cif_columns(PIPELINE.path('clean_bank', name + '.cif'),
+                                             '_atom_site.id', '_atom_site.label_asym_id')
+                self.assertGreater(len(clean[0]), 0)
+                self.assertEqual(clean, raw)
+
+    def test_pdb_id_restored(self):
+        for name in ASSEMBLIES:
+            with self.subTest(assembly=name):
+                with open(PIPELINE.path('clean_bank', name + '.cif')) as f:
+                    text = f.read()
+                self.assertIn("_entry.id   '{0}'".format(name[:4].upper()), text)
+
+    def test_consistent_with_mmcif_dictionary(self):
+        assert_consistent(self, 'clean_bank')
 
 
 class TestStep3MolID(unittest.TestCase):
@@ -257,7 +262,7 @@ class TestStep3MolID(unittest.TestCase):
         with open(MOLID_INPUT) as f:
             cls.assignment = dict(line.rstrip('\n').rsplit(':', 1) for line in f if line.strip())
         with PIPELINE.log('step3_entities.log'):
-            master = molidutils.pdb_to_masterlist(glob.glob(PIPELINE.path('simple_bank', '*.cif')))
+            master = molidutils.pdb_to_masterlist(glob.glob(PIPELINE.path('clean_bank', '*.cif')))
         files_by_entity = molidutils.CreateMasterUniqueMolIDMapWithFileName(master)
         cls.files_by_entity = {e: {os.path.basename(f)[:4] for f in files} for e, files in files_by_entity.items()}
 
@@ -285,6 +290,9 @@ class TestStep3MolID(unittest.TestCase):
                 (asym,) = _support.cif_columns(PIPELINE.path('standard_MolID_bank', name + '.cif'),
                                                '_atom_site.label_asym_id')
                 self.assertLessEqual(set(asym), allowed)
+
+    def test_consistent_with_mmcif_dictionary(self):
+        assert_consistent(self, 'standard_MolID_bank')
 
 
 class TestStep4ChainID(unittest.TestCase):
@@ -323,6 +331,9 @@ class TestStep4ChainID(unittest.TestCase):
                                                '_atom_site.label_asym_id')
                 self.assertIn(new, asym)
 
+    def test_consistent_with_mmcif_dictionary(self):
+        assert_consistent(self, 'standard_ChainID_bank')
+
 
 class TestStep5ResidueID(unittest.TestCase):
     @classmethod
@@ -345,26 +356,27 @@ class TestStep5ResidueID(unittest.TestCase):
         self.assertEqual(set(self.mapping), set(self.structures))
 
     def test_cif_numbering_matches_map(self):
+        # OCT2026: the new numbering is in auth_seq_id + pdbx_PDB_ins_code; label_seq_id is not changed
         for s in self.structures:
             with self.subTest(structure=s):
                 self.assertEqual(len(self.before[s]), len(self.after[s]))
-                for (chain, num, ins, comp), (chain2, num2, ins2, comp2) in zip(self.before[s], self.after[s]):
-                    self.assertEqual((chain, comp), (chain2, comp2))
+                for (chain, num, auth, ins, comp), (chain2, num2, auth2, ins2, comp2) in zip(self.before[s], self.after[s]):
+                    self.assertEqual((chain, num, comp), (chain2, num2, comp2))
                     old = num + ('' if ins == '?' else ins)
-                    self.assertEqual(self.mapping[s][(chain, old)], (num2, ins2),
+                    self.assertEqual(self.mapping[s][(chain, old)], (auth2, ins2),
                                      'chain {0} residue {1}'.format(chain, old))
 
     def test_numbering_increases_along_each_chain(self):
         for s in self.structures:
             last = {}
-            for chain, num, ins, comp in self.after[s]:
-                key = residue_order(num, ins)
+            for chain, num, auth, ins, comp in self.after[s]:
+                key = residue_order(auth, ins)
                 if chain in last:
-                    self.assertGreater(key, last[chain], '{0} chain {1} at {2}{3}'.format(s, chain, num, ins))
+                    self.assertGreater(key, last[chain], '{0} chain {1} at {2}{3}'.format(s, chain, auth, ins))
                 last[chain] = key
 
     def test_insertion_codes_assigned_for_gappy_columns(self):
-        with_ins = [s for s in self.structures if any(r[2] != '?' for r in self.after[s])]
+        with_ins = [s for s in self.structures if any(r[3] != '?' for r in self.after[s])]
         self.assertTrue(with_ins, 'no insertion codes at occupancy threshold {0}'.format(OCCUPANCY_THRESHOLD))
 
     def test_same_number_same_residue_across_copies(self):
@@ -373,11 +385,14 @@ class TestStep5ResidueID(unittest.TestCase):
         by_position = defaultdict(set)
         for s in self.structures:
             if s.startswith('1aw1'):
-                for chain, num, ins, comp in self.after[s]:
-                    by_position[(chain, num, ins)].add(comp)
+                for chain, num, auth, ins, comp in self.after[s]:
+                    by_position[(chain, auth, ins)].add(comp)
         self.assertTrue(by_position)
         conflicts = {k: v for k, v in by_position.items() if len(v) > 1}
         self.assertFalse(conflicts)
+
+    def test_consistent_with_mmcif_dictionary(self):
+        assert_consistent(self, 'standard_ResidueID_bank')
 
     def test_no_alignment_files_in_banks(self):
         for bank in ('standard_ChainID_bank', 'standard_ResidueID_bank'):

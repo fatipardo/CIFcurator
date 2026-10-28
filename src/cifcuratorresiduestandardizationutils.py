@@ -348,6 +348,11 @@ def conversiontemplate_to_pdb_FAPA(filelist, Structure_ConversionTemplate, targe
     Saves the conversion template into re-written CIF(s) which are placed into the target directory.
     This function considers cases where a residue number also includes a letter.
 
+    OCT2026: the new residue number and letter are written to auth_seq_id and pdbx_PDB_ins_code, and to
+    the matching pdbx_poly_seq_scheme rows (pdb_seq_num, auth_seq_num, pdb_ins_code). label_seq_id is
+    no longer changed: mmCIF requires it to be the residue's position in entity_poly_seq, and letters
+    (insertion codes) cannot be stored there. Viewers such as PyMOL show the auth_seq_id numbering.
+
     Parameters:
     -----------
     filelist : str
@@ -368,96 +373,53 @@ def conversiontemplate_to_pdb_FAPA(filelist, Structure_ConversionTemplate, targe
             with open(newciffilename, 'w') as newciffile:
                 # Now figure out which file is which template
                 conversion_template = Structure_ConversionTemplate[myfile.name]
-                #print(conversion_template)
-
+                category = None # OCT2026
 
                 for line in myfile:
-                    resnum=1
-                    #old_line_resnum=0
+                    # OCT2026: track the category, to find the rows of pdbx_poly_seq_scheme
+                    if line.startswith('_'):
+                        category = line.split('.')[0]
+                    elif line.startswith('#'):
+                        category = None
                     if (line[0:4] == "ATOM") or (line[0:6] == "HETATM"):
                         # Chains outside map should not exist but just in case
-                        #line_split = line.strip()
                         line_split = line.split()
-                        #print(line_split[8])
-                        #new_line_resnum=int(line_split[8])
-
-                        #if new_line_resnum == start_line_resnum:
 
                         # We need to consider the value of pdbx_PDB_ins_code, in column 9
                         # This is considered in the key
-                        # and original value will be overwritten with '?'
-                        # in next version, we will add the letter value to column 9
-
+                        # and original value will be overwritten with '?' or the new letter
                         if str(line_split[9]) == '?':
                             key = line_split[6] + "_" + str(line_split[8]) + " "  # FAPA: WE WANT CHAINID_RESID TO BE THE KEY
                         else:
                             key = line_split[6] + "_" + str(line_split[8]) + str(line_split[9])
 
-
-                        #key = line_split[6] + "_" + str(line_split[8]) #FAPA: WE WANT CHAINID_RESID TO BE THE KEY
-                        #key = line_split[6] + "_" + str(resnum)  # FAPA: WE WANT CHAINID_RESID TO BE THE KEY
-
-                        #print(len(line_split))
-
-
-
                         if key in conversion_template:
-                            #print(key, conversion_template[key])
-                            if len(line_split) == 18:
-                                if len(str(conversion_template[key]).split()) < 2:
-                                    #print(conversion_template[key])
-                                    newline = line_split[0] + " " + line_split[1] + " " + line_split[2] + " " + line_split[3] + " " + line_split[4] + " " + line_split[5] + " " + line_split[6] + " " + \
-                                              line_split[7] + " " + str(conversion_template[key]) + " " + "?" + " " + line_split[10] + " " + line_split[11] + " " + line_split[12] + " " + line_split[13] + \
-                                              " " + line_split[14] + " " + str(conversion_template[key]) + " " + line_split[16] + " " + line_split[17] + " " + "\n"
-                                    newciffile.write(newline)
-                                else:
-                                    # the key already contains two columns (this is a test)
-                                    #print("i am here: "+ str(conversion_template[key].split()[1]))
-                                    newline = line_split[0] + " " + line_split[1] + " " + line_split[2] + " " + \
-                                              line_split[3] + " " + line_split[4] + " " + line_split[5] + " " + \
-                                              line_split[6] + " " + \
-                                              line_split[7] + " " + str(conversion_template[key].split()[0]) + " " + \
-                                              str(conversion_template[key].split()[1])+ " " + \
-                                              line_split[10] + " " + line_split[11] + " " + line_split[12] + " " + \
-                                              line_split[13] + \
-                                              " " + line_split[14] + " " + str(conversion_template[key].split()[0]) + " " + \
-                                              line_split[16] + " " + line_split[17] + " " + "\n"
-                                    newciffile.write(newline)
-                            else:
-                                if len(str(conversion_template[key]).split()) < 2:
-                                    #print(conversion_template[key])
-                                    newline = line_split[0] + " " + line_split[1] + " " + line_split[2] + " " + line_split[3] + " " + line_split[4] + " " + line_split[5] + " " + line_split[6] + " " + \
-                                              line_split[7] + " " + str(conversion_template[key]) + " " + "?" + " " + line_split[10] + " " + line_split[11] + " " + line_split[12] + " " + line_split[13] + \
-                                              " " + line_split[14] + " " + str(conversion_template[key]) + " " + line_split[16] + " " + line_split[17] + " " + line_split[18] + " " + line_split[19] + "\n"
-                                    newciffile.write(newline)
-                                else:
-                                    newline = line_split[0] + " " + line_split[1] + " " + line_split[2] + " " + \
-                                              line_split[3] + " " + line_split[4] + " " + line_split[5] + " " + \
-                                              line_split[6] + " " + \
-                                              line_split[7] + " " + str(conversion_template[key].split()[0]) + " " + \
-                                              str(conversion_template[key].split()[1]) + " " + \
-                                              line_split[10] + " " + line_split[11] + " " + line_split[12] + " " + \
-                                              line_split[13] + \
-                                              " " + line_split[14] + " " + str(conversion_template[key].split()[0]) + " " + \
-                                              line_split[16] + " " + line_split[17] + " " + line_split[18] + " " + line_split[19] + "\n"
-                                    newciffile.write(newline)
+                            # OCT2026: new number in auth_seq_id (column 15), new letter in pdbx_PDB_ins_code (column 9)
+                            new_resid = str(conversion_template[key]).split()
+                            line_split[15] = new_resid[0]
+                            line_split[9] = new_resid[1] if len(new_resid) > 1 else "?"
+                            newciffile.write(" ".join(line_split) + "\n")
                         else:
-                            if len(line_split) == 18:
-                                newciffile.write(line)
-                            else:
-                                if line_split[8] == ".":
-                                    newline = line_split[0] + " " + line_split[1] + " " + line_split[2] + " " + \
-                                              line_split[3] + " " + line_split[4] + " " + line_split[5] + " " + \
-                                              line_split[6] + " " + \
-                                              line_split[7] + " " + line_split[15] + " " + \
-                                              line_split[9] + " " + \
-                                              line_split[10] + " " + line_split[11] + " " + line_split[12] + " " + \
-                                              line_split[13] + \
-                                              " " + line_split[14] + " " + line_split[15] + " " + \
-                                              line_split[16] + " " + line_split[17] + " " + line_split[18] + " "+ line_split[19] +"\n"
-                                    newciffile.write(newline)
-                                else:
-                                    newciffile.write(line)
+                            newciffile.write(line)
+
+                    # OCT2026: same numbering in pdbx_poly_seq_scheme (asym_id, seq_id: columns 0, 2;
+                    # pdb_seq_num, auth_seq_num, pdb_ins_code: columns 5, 6, 10). Unobserved residues are not in
+                    # the template and keep their numbers.
+                    elif category == '_pdbx_poly_seq_scheme' and not line.startswith(('_', 'loop_')) and line.split() != []:
+                        line_split = line.split()
+                        if line_split[10] in ('?', '.'):
+                            key = line_split[0] + "_" + line_split[2] + " "
+                        else:
+                            key = line_split[0] + "_" + line_split[2] + line_split[10]
+                        if key in conversion_template:
+                            new_resid = str(conversion_template[key]).split()
+                            line_split[5] = new_resid[0]
+                            if line_split[6] not in ('?', '.'):
+                                line_split[6] = new_resid[0]
+                            line_split[10] = new_resid[1] if len(new_resid) > 1 else "?"
+                            newciffile.write(" ".join(line_split) + "\n")
+                        else:
+                            newciffile.write(line)
                     else:
                         newciffile.write(line)
 

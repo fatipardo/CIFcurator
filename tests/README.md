@@ -13,7 +13,7 @@ to be installed. They do need its dependencies (biopython, numpy, ...).
 
 | File | What | Needs |
 | --- | --- | --- |
-| `test_units.py` | Pure functions: residue-name conversion, gap percentages, alignment scoring, seqres search, CIF simplification (including the OCT2026 path fix), project directories | nothing (offline, ~1 s) |
+| `test_units.py` | Pure functions: residue-name conversion, gap percentages, alignment scoring, seqres search, CIF cleaning (including the OCT2026 path fix), the CIF writers of Steps 3-5, project directories | nothing (offline, ~1 s) |
 | `test_pipeline.py` | The full workflow, Steps 1 -> 5, on live PDB data | network, `muscle` (v5) on `PATH` |
 
 **Step 1** searches `pdb_seqres.txt` for "triosephosphate isomerase", as in the tutorial.
@@ -26,9 +26,12 @@ choices as the tutorials. The checks look at properties of the results, not exac
 so harmless PDB remediation does not break them:
 
 - Step 2: one file per biological assembly (1aw1 -> 4), each holding only its own chains, no atoms lost.
+- Steps 2-5: every output file has the categories and key items its data require (atom_type, chem_comp,
+  struct_asym, entity_poly_seq, pdbx_poly_seq_scheme, citation.id, ...), and they agree with the atoms
+  after chains are renamed and residues renumbered (`_support.mmcif_problems`).
 - Step 3: 1klg shows up as the outlier. The entity names in `data/TIM_input_file.txt` still match the PDB files. Chains are renamed only to the assigned IDs.
 - Step 4: the 1aw1 chains score 1.0 against the consensus. 1btm (different organism) scores below 0.6.
-- Step 5: the CIF numbering matches `OldResID_NewResID_Map.csv`. Numbering increases along each chain. Insertion codes appear for gappy columns. Copies of the same protein get the same residue at the same number.
+- Step 5: the CIF numbering (`auth_seq_id` + `pdbx_PDB_ins_code`) matches `OldResID_NewResID_Map.csv`. Numbering increases along each chain. Insertion codes appear for gappy columns. Copies of the same protein get the same residue at the same number.
 
 Each step is a test class and runs the steps before it on demand, so you can run one step alone:
 

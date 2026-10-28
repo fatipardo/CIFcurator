@@ -53,7 +53,7 @@ def quiet_known_warnings():
     Call from setUpModule: unittest resets warning filters when the run starts.
     """
     warnings.filterwarnings('ignore', category=SyntaxWarning)
-    # cleanutils.simplify_cif never closes the files it writes (CPython closes them on reassignment).
+    # Library code that leaves files for CPython to close.
     warnings.filterwarnings('ignore', category=ResourceWarning)
 
 
@@ -149,3 +149,82 @@ def cif_columns(path, *keys):
     from Bio.PDB.MMCIF2Dict import MMCIF2Dict
     d = MMCIF2Dict(path)
     return [d[k] if isinstance(d[k], list) else [d[k]] for k in keys]
+
+
+def mmcif_problems(path):
+    """
+    Return a list of problems that make `path` inconsistent with the mmCIF dictionary, as pointed out
+    by the manuscript reviewer (OCT2026): missing categories that the atoms refer to, missing key items,
+    and links between categories that do not match (e.g. a chain in _atom_site with no _struct_asym row,
+    or _pdbx_poly_seq_scheme numbering that differs from the atoms after Steps 3-5).
+    An empty list means no problem was found.
+    """
+    from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+    d = MMCIF2Dict(path)
+
+    def col(key):
+        value = d.get(key)
+        return None if value is None else (value if isinstance(value, list) else [value])
+
+    def null(value):
+        return value in ('?', '.')
+
+    problems = []
+    for key in ('_atom_type.symbol', '_chem_comp.id', '_struct_asym.id', '_struct_asym.entity_id',
+                '_entity.id', '_entity_poly.entity_id', '_entity_poly_seq.num', '_pdbx_poly_seq_scheme.asym_id',
+                '_citation.id', '_citation_author.citation_id', '_citation_author.ordinal', '_exptl.entry_id'):
+        if col(key) is None:
+            problems.append('missing ' + key)
+    if problems:
+        return problems
+
+    atoms = list(zip(col('_atom_site.type_symbol'), col('_atom_site.label_comp_id'), col('_atom_site.label_asym_id'),
+                     col('_atom_site.label_entity_id'), col('_atom_site.label_seq_id'),
+                     col('_atom_site.pdbx_PDB_ins_code'), col('_atom_site.auth_seq_id'),
+                     col('_atom_site.auth_asym_id')))
+    asym_entity = {}
+    for asym, entity in zip(col('_struct_asym.id'), col('_struct_asym.entity_id')):
+        if asym in asym_entity:
+            problems.append('duplicate _struct_asym.id ' + asym)
+        asym_entity[asym] = entity
+    poly_seq = set(zip(col('_entity_poly_seq.entity_id'), col('_entity_poly_seq.num'), col('_entity_poly_seq.mon_id')))
+    scheme = {}
+    for row in zip(col('_pdbx_poly_seq_scheme.asym_id'), col('_pdbx_poly_seq_scheme.entity_id'),
+                   col('_pdbx_poly_seq_scheme.seq_id'), col('_pdbx_poly_seq_scheme.mon_id'),
+                   col('_pdbx_poly_seq_scheme.pdb_seq_num'), col('_pdbx_poly_seq_scheme.pdb_strand_id'),
+                   col('_pdbx_poly_seq_scheme.pdb_ins_code')):
+        asym, entity, seq, mon, pdb_num, strand, ins = row
+        if asym_entity.get(asym) != entity:
+            problems.append('_pdbx_poly_seq_scheme chain {0} entity {1} not in _struct_asym'.format(asym, entity))
+        if (entity, seq, mon) not in poly_seq:
+            problems.append('_pdbx_poly_seq_scheme {0} {1} {2} not in _entity_poly_seq'.format(asym, seq, mon))
+        scheme[(asym, seq, mon)] = (pdb_num, strand, '' if null(ins) else ins)
+
+    checks = [('_atom_site.type_symbol', {a[0] for a in atoms}, set(col('_atom_type.symbol'))),
+              ('_atom_site.label_comp_id', {a[1] for a in atoms}, set(col('_chem_comp.id'))),
+              ('_atom_site.label_asym_id', {a[2] for a in atoms}, set(asym_entity)),
+              ('_atom_site.label_entity_id', {a[3] for a in atoms}, set(col('_entity.id'))),
+              ('_struct_asym.entity_id', set(asym_entity.values()), set(col('_entity.id'))),
+              ('_entity_poly_seq.entity_id', set(col('_entity_poly_seq.entity_id')), set(col('_entity_poly.entity_id'))),
+              ('_citation_author.citation_id', set(col('_citation_author.citation_id')), set(col('_citation.id'))),
+              ('_exptl.entry_id', set(col('_exptl.entry_id')), set(col('_entry.id')))]
+    for item, values, parents in checks:
+        if values - parents:
+            problems.append('{0} without parent: {1}'.format(item, sorted(values - parents)[:5]))
+
+    seen = set()
+    for symbol, comp, asym, entity, seq, ins, auth_seq, auth_asym in atoms:
+        if (asym, seq, comp) in seen:
+            continue
+        seen.add((asym, seq, comp))
+        if asym in asym_entity and asym_entity[asym] != entity:
+            problems.append('chain {0}: atoms in entity {1}, _struct_asym says {2}'.format(asym, entity, asym_entity[asym]))
+        if null(seq):
+            continue
+        if (entity, seq, comp) not in poly_seq:
+            problems.append('residue {0} {1} {2} not in _entity_poly_seq'.format(asym, seq, comp))
+        expected = (auth_seq, auth_asym, '' if null(ins) else ins)
+        if scheme.get((asym, seq, comp)) != expected:
+            problems.append('residue {0} {1} {2}: atoms say {3}, _pdbx_poly_seq_scheme says {4}'.format(
+                asym, seq, comp, expected, scheme.get((asym, seq, comp))))
+    return problems
