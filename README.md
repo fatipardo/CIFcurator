@@ -27,7 +27,7 @@ Download all structures that match the name and sequence of your molecule of int
 
 ### [Step 2. Clean Structures and Create one CIF file per biological assembly.](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step2.CreateOneCIFFilePerBiologicalAssembly.ipynb)
 
-A CIF file may contain multiple biological assemblies within one asymmetric unit. In this step we separate these biological assemblies, and create one CIF file for each one. We also reduce the number of data blocks included in the CIF file, keeping those that the coordinates refer to, so that the files stay consistent with the mmCIF dictionary. (This step used to be two steps, 'clean' and 'simplify'; they are now one.)
+A CIF file may contain multiple biological assemblies within one asymmetric unit. In this step we separate these biological assemblies, and create one CIF file for each one. We also reduce the number of data blocks included in the CIF file, keeping those that the coordinates refer to, so that the files stay consistent with the mmCIF dictionary. Each file declares the dictionary it follows (PDBx/mmCIF `mmcif_pdbx.dic`, version 5.418) in its `_audit_conform` category. (This step used to be two steps, 'clean' and 'simplify'; they are now one.)
 
 ### [Step 3.1. Assign MOLID to the entities found in the CIF files, version 1](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step3.1.AssignMolIDToEntitiesFoundInCIFfiles1.ipynb)
 

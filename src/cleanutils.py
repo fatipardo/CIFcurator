@@ -2,6 +2,11 @@ import os, glob
 import re
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
+# OCT2026: PDBx/mmCIF dictionary that the output files follow, declared in their _audit_conform category
+MMCIF_DICT_NAME = 'mmcif_pdbx.dic'
+MMCIF_DICT_VERSION = '5.418'
+MMCIF_DICT_LOCATION = 'https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic'
+
 def process(projdir=None, step='clean', source='raw_bank', target='clean_bank', pdbformat='.cif', verbose=True):
     """
     Processes all CIF files in the source directory through the cleaning step, and then saves the results
@@ -158,6 +163,12 @@ def clean_cif(oldfile, newfile, pdbformat='.cif'):
             entryid = '_entry.id   ' + entry_id
             newciffile.write(entryid + "\n")
 
+            # OCT2026: Writes the dictionary the file follows
+            newciffile.write("#\n")
+            newciffile.write("_audit_conform.dict_name       " + MMCIF_DICT_NAME + "\n")
+            newciffile.write("_audit_conform.dict_version    " + MMCIF_DICT_VERSION + "\n")
+            newciffile.write("_audit_conform.dict_location   " + MMCIF_DICT_LOCATION + "\n")
+
             # Write Audit category
             # OCT2026: with its key items citation_id and ordinal
             newciffile.write("#\n")
@@ -192,37 +203,22 @@ def clean_cif(oldfile, newfile, pdbformat='.cif'):
             for i in range(len(L1)):
                 newciffile.write(cif_value(L0[i]) + " '" + re.sub("\n"," ",re.sub("'", "", L1[i])) + "' " + L2[i] + " " + cif_value(L3[i]) + "\n") #FAPA
 
-            # Writes Resolution category
-            # OCT2026: with its key item entry_id
+            # Writes Experimental method category
+            # OCT2026: with its key item entry_id. _exptl.resolution is not a dictionary item and is not written
             newciffile.write("#" + "\n")
             newciffile.write("loop_" + "\n")
             newciffile.write("_exptl.entry_id" + "\n")
             newciffile.write("_exptl.method" + "\n")
-            newciffile.write("_exptl.resolution" + "\n")
             if '_exptl.method' in mmcif_dict:
                 L1 = mmcif_dict['_exptl.method']
             elif '_refine_hist.pdbx_refine_id' in mmcif_dict:
                 L1 = mmcif_dict['_refine_hist.pdbx_refine_id']
             else:
                 L1 = mmcif_dict['_refine.pdbx_refine_id']
-            if '_refine.ls_d_res_high' in mmcif_dict:
-                L2 = mmcif_dict['_refine.ls_d_res_high']
-            elif '_em_3d_reconstruction.resolution' in mmcif_dict:
-                L2 = mmcif_dict['_em_3d_reconstruction.resolution']
-            elif '_refine_hist.d_res_high' in mmcif_dict:
-                L2 = mmcif_dict['_refine_hist.d_res_high']
-            else:
-                L2 = '????'
-            if isinstance(L1, list) and isinstance(L2, list):
-                for i in range(len(L1)):
-                    newciffile.write(entry_id + " '" + L1[i] + "' " + L2[min(i, len(L2) - 1)] + " " + "\n")
-            elif isinstance(L1, list) and not isinstance(L2,list):
-                for i in range(len(L1)):
-                    newciffile.write(entry_id + " '" + L1[i] + "' " + L2 + " " + "\n")
-            elif not isinstance(L1,list) and isinstance(L2,list):
-                newciffile.write(entry_id + " '" + L1 + "' " + L2[0] + " " + "\n")
-            else:
-                newciffile.write(entry_id + " '" + L1 + "' " + L2 + " " + "\n")
+            if not isinstance(L1, list):
+                L1 = [L1]
+            for i in range(len(L1)):
+                newciffile.write(entry_id + " '" + L1[i] + "'\n")
 
             # Writes Entity category
             # PAULINA 05/08/26

@@ -172,9 +172,17 @@ def mmcif_problems(path):
     problems = []
     for key in ('_atom_type.symbol', '_chem_comp.id', '_struct_asym.id', '_struct_asym.entity_id',
                 '_entity.id', '_entity_poly.entity_id', '_entity_poly_seq.num', '_pdbx_poly_seq_scheme.asym_id',
-                '_citation.id', '_citation_author.citation_id', '_citation_author.ordinal', '_exptl.entry_id'):
+                '_citation.id', '_citation_author.citation_id', '_citation_author.ordinal', '_exptl.entry_id',
+                '_audit_conform.dict_name', '_audit_conform.dict_version'):
         if col(key) is None:
             problems.append('missing ' + key)
+    # OCT2026: the dictionary version the file declares is the one CIFcurator follows
+    from CIFcurator import cleanutils
+    if col('_audit_conform.dict_version') not in (None, [cleanutils.MMCIF_DICT_VERSION]):
+        problems.append('_audit_conform.dict_version is not ' + cleanutils.MMCIF_DICT_VERSION)
+    # OCT2026: not a dictionary item
+    if col('_exptl.resolution') is not None:
+        problems.append('_exptl.resolution is not a dictionary item')
     if problems:
         return problems
 
