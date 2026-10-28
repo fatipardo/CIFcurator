@@ -87,7 +87,8 @@ def clean_cif(oldfile, newfile, pdbformat='.cif'):
     # OCT2026: oldfile is a wwPDB assembly file: written whole, with all atoms. Its _entry.id is XXXX:
     # the PDB ID is taken from the filename instead
     if '_pdbx_struct_assembly_gen.assembly_id' not in mmcif_dict: #OCT2026
-        entry_id = "'"+os.path.basename(newfile_stem).split('+')[0].upper()+"'"
+        oldfile_stem = oldfile[:-len(pdbformat)] if oldfile.endswith(pdbformat) else oldfile
+        entry_id = "'"+os.path.basename(oldfile_stem).split('+')[0].upper()+"'"
         outputs = [(newfile_stem, None)]
     else:
         # Create map from asym_id to assembly_id
