@@ -7,7 +7,7 @@ dependencies:
   - biopython=1.86
   - jupyter=1.1.1
   - matplotlib=3.10.8
-  - mmseqs2=14.7e284
+  - mmseqs2=15.6f452
   - muscle=5.1
   - numpy=2.3.5
   - pandas=2.3.3
