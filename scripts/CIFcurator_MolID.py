@@ -8,20 +8,63 @@
 # to determine when the next step in the program is unlocked
 # Create list of MolIDConversion objects using unique_molID_occur_map
 
+r"""Step 3 of CIFcurator: assign the chain IDs of the entities (MolIDs) found in the CIF files.
+
+Reads every .cif file in source_dir, lists the entities (MolIDs) found in them, and asks
+you to give each entity a new chain ID for every copy of it. The rewritten CIF files are
+saved in target_dir. The script is interactive: it shows a menu and asks for options.
+
+Conversion Build Menu:
+  1) Show full conversion
+         Show every entity and the chain IDs assigned to it so far.
+  2) Show only unassigned conversions
+         Show only the entities that still miss chain IDs.
+  3) Enter input file
+         Read the chain IDs from a file with one entity per line, in the format
+         ENTITY NAME:chainID,chainID,...   for example   WATER:F,G
+  4) Search MolID to add chain ID conversion
+         Search for an entity by name and add chain IDs to it.
+  5) Go entry by entry to add chain ID conversion
+         Ask for the chain IDs of every entity, one by one.
+  6) Remove a chain ID conversion
+         Search for an entity by name and remove chain IDs from it.
+  A) Track changes
+         Write OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
+         (original_chain_names:new_chain_names:entity_name:number_of_files:file_name).
+  7) Continue to next step of curation
+         Shown once every entity has all its chain IDs.
+  QUIT   Exit without writing CIF files.
+
+After option 7, if no two entities share a chain ID, option 6) Finalize Curation writes the
+CIF files to target_dir. Otherwise the Concatenations Menu appears: entities with the same
+chain ID will be concatenated into one chain, and each concatenation must be accepted first:
+  1) Show all conversions
+  2) Show only unaccepted concatenations
+  3) Search and modify destination chainIDs of proposed concatenations
+  4) Accept proposed concatenation one by one
+  5) Accept ALL (make sure you agree with all concatenations)
+  6) Finalize Curation
+
+The answers can also be given on standard input, for example:
+  printf '3\nTIM_input_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank
+"""
+
 from __future__ import print_function
-import sys, glob
+import argparse, glob
 from CIFcurator import cifcuratormolidcifutils as molidutils
 
 
 ########################
 # READ INPUT ARGUMENTS #
 ########################
-n_arg = len(sys.argv)
-if(n_arg<3):
-    print('Usage error: {0} <source directory> <target directory>'.format(sys.argv[0]))
-    sys.exit()
-source_dir = sys.argv[1]
-target_dir = sys.argv[2]
+parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
+                                 epilog=__doc__.split('\n\n', 1)[1],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+parser.add_argument('source_dir', help='Directory with the input CIF files (for example, the output of Step 2)')
+parser.add_argument('target_dir', help='Directory where the new CIF files are saved')
+args = parser.parse_args()
+source_dir = args.source_dir
+target_dir = args.target_dir
 
 
 #########################################
