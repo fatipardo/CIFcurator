@@ -1,20 +1,52 @@
 #!/usr/bin/env python
 # coding: utf-8
 #
+r"""Step 4 of CIFcurator: standardize the chain IDs of the CIF files.
+
+Reads every .cif file in source_dir and builds a set of Standard Sequences, one per chain
+ID. The chains of every structure are then aligned (pairwise) to the Standard Sequences and
+renamed if needed, so that the same molecule has the same chain ID in every file. The new
+CIF files are saved in target_dir. The script is interactive: it shows a menu and asks for
+options.
+
+ChainID Standardization Menu:
+  1) Select Standard Sequences from a chosen input structure
+         Use the chains of one input structure as the Standard Sequences.
+  2) Generate Standard Sequences based on all the input structures
+         For each chain ID, use the sequence with the highest consensus score among all
+         the input structures. Its submenu also has
+         5) Load previously generated standard sequences
+         to read them from a StandardSequences.json file written in an earlier run.
+  3) Inspect/Edit Standard Sequences
+         Shown once Standard Sequences exist. Inspect or edit the sequence of a chain ID.
+  4) Perform Standardization of Chain IDs
+         Shown once Standard Sequences exist. Chain IDs can be added to an ignore list;
+         then option 4 of the submenu aligns the chains and writes the CIF files.
+  QUIT   Exit without writing CIF files.
+
+The Standard Sequences are saved as StandardSequences.json in target_dir every time they
+change. MUSCLE alignment files are written in the current directory.
+
+The answers can also be given on standard input, for example:
+  printf '2\n4\n4\n4\n' | CIFcurator_ChainStandardization.py standard_MolID_bank standard_ChainID_bank
+"""
+
 from __future__ import print_function
 from __future__ import division
-import sys, glob, json
+import argparse, glob, json
 from CIFcurator import cifcuratorchainstandardizationutils as chainstd
 
 ########################
 # READ INPUT ARGUMENTS #
 ########################
-n_arg = len(sys.argv)
-if(n_arg<3):
-    print('Usage error: {0} <source directory> <target directory>'.format(sys.argv[0]))
-    sys.exit()
-source_dir=sys.argv[1]
-target_dir=sys.argv[2]
+parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
+                                 epilog=__doc__.split('\n\n', 1)[1],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+parser.add_argument('source_dir', help='Directory with the input CIF files (for example, the output of Step 3)')
+parser.add_argument('target_dir', help='Directory where the new CIF files and StandardSequences.json are saved')
+args = parser.parse_args()
+source_dir=args.source_dir
+target_dir=args.target_dir
 
 
 #############################################
