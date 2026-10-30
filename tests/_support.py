@@ -170,10 +170,14 @@ def mmcif_problems(path):
         return value in ('?', '.')
 
     problems = []
-    for key in ('_atom_type.symbol', '_chem_comp.id', '_struct_asym.id', '_struct_asym.entity_id',
+    required = ['_atom_type.symbol', '_chem_comp.id', '_struct_asym.id', '_struct_asym.entity_id',
                 '_entity.id', '_entity_poly.entity_id', '_entity_poly_seq.num', '_pdbx_poly_seq_scheme.asym_id',
-                '_citation.id', '_citation_author.citation_id', '_citation_author.ordinal', '_exptl.entry_id',
-                '_audit_conform.dict_name', '_audit_conform.dict_version'):
+                '_citation.id', '_citation_author.citation_id', '_citation_author.ordinal',
+                '_audit_conform.dict_name', '_audit_conform.dict_version']
+    # OCT2026: computed structure models (RCSB IDs AF_... and MA_...) have no experimental method
+    if not (col('_entry.id') or [''])[0].upper().startswith(('AF_', 'MA_')):
+        required.append('_exptl.entry_id')
+    for key in required:
         if col(key) is None:
             problems.append('missing ' + key)
     # OCT2026: the dictionary version the file declares is the one CIFcurator follows
@@ -215,7 +219,7 @@ def mmcif_problems(path):
               ('_struct_asym.entity_id', set(asym_entity.values()), set(col('_entity.id'))),
               ('_entity_poly_seq.entity_id', set(col('_entity_poly_seq.entity_id')), set(col('_entity_poly.entity_id'))),
               ('_citation_author.citation_id', set(col('_citation_author.citation_id')), set(col('_citation.id'))),
-              ('_exptl.entry_id', set(col('_exptl.entry_id')), set(col('_entry.id')))]
+              ('_exptl.entry_id', set(col('_exptl.entry_id') or []), set(col('_entry.id')))]
     for item, values, parents in checks:
         if values - parents:
             problems.append('{0} without parent: {1}'.format(item, sorted(values - parents)[:5]))

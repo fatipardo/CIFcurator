@@ -4,8 +4,9 @@ import shutil
 import re
 import gzip
 import uuid
+import json
 import numpy as np
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 from urllib.error import HTTPError, ContentTooShortError
 from contextlib import closing, suppress
 #
@@ -13,6 +14,17 @@ from contextlib import closing, suppress
 # and will replace the current archive on July 21, 2027 (https://www.wwpdb.org/ftp/pdb-beta-ftp-sites)
 ARCHIVE_URL='https://files-beta.wwpdb.org/pub/wwpdb/pdb/'
 DOWNLOAD_URL='https://files-beta.wwpdb.org/download/'
+# OCT2026: computed structure models (CSMs) are found with the RCSB Search API. RCSB serves their
+# coordinates only as BinaryCIF, so the mmCIF file is downloaded from the database that made the model.
+# Only AlphaFold DB models are supported for now: ModelArchive models (MA_...) are skipped
+RCSB_SEARCH_URL='https://search.rcsb.org/rcsbsearch/v2/query'
+RCSB_ENTRY_URL='https://data.rcsb.org/rest/v1/core/entry/'
+AFDB_API_URL='https://alphafold.ebi.ac.uk/api/prediction/'
+CSM_WARNING = """WARNING: computed structure models (CSMs) from AlphaFold DB contain ONE PROTEIN CHAIN ONLY.
+They have no nucleic acids, ligands, waters or other copies of the protein. For example, a Cas9 model has
+no guide RNA or target DNA, and a triosephosphate isomerase model is a monomer, while the experimental
+structures are dimers. Models cover the full UniProt sequence (signal peptides included), and the
+B-factor column holds the model confidence (pLDDT), not a B-factor."""
 #
 def extended_pdbid(pdbid):
     """
@@ -170,6 +182,137 @@ def download_assemblies_from_id(pdbid, download_dir=None):
             target = download_dir+'/{0}+{1:02d}.cif'.format(pdbid, number)
             download_from_url(entry_url(pdbid)+'assemblies/'+name, target, gunzip=True)
 
+def read_json_from_url(url, query=None):
+    """
+    OCT2026: Reads a JSON document from a URL. If a query is given, it is sent as JSON with a POST request.
+
+    Parameters:
+    -----------
+    url : str
+        The URL to read.
+    query : dict, optional
+        The JSON query to send. Default is None (GET request).
+
+    Returns:
+    --------
+    document : dict or list
+        The JSON document. None if the server answers 204 (No Content), as the RCSB Search API
+        does when nothing is found.
+    """
+    if query is None:
+        request = url
+    else:
+        request = Request(url, data=json.dumps(query).encode('utf-8'), headers={'Content-Type': 'application/json'})
+    with closing(urlopen(request)) as r:
+        if getattr(r, 'status', 200) == 204:
+            return None
+        return json.loads(r.read().decode('utf-8'))
+
+def search_csm_from_keyword(keyword, max_models=None):
+    """
+    OCT2026: Finds computed structure models (CSMs) in RCSB PDB with a full text search, the same search
+    that the RCSB PDB web site does. It is not the search of retrieve_sequence_from_PDB, so the keyword
+    can match a different set of proteins.
+
+    Parameters:
+    -----------
+    keyword : str
+        The text to search for, e.g. 'triosephosphate isomerase'.
+    max_models : int, optional
+        The largest number of CSMs to return, best matches first. Default is None (all of them).
+
+    Returns:
+    --------
+    csmids : list of str
+        The RCSB IDs of the CSMs, e.g. 'AF_AFP60174F1' (AlphaFold DB) or 'MA_MABAKCEPC' (ModelArchive).
+    """
+    query = {'query': {'type': 'terminal', 'service': 'full_text', 'parameters': {'value': keyword}},
+             'return_type': 'entry',
+             'request_options': {'results_content_type': ['computational']}}
+    if max_models is None:
+        query['request_options']['return_all_hits'] = True
+    else:
+        query['request_options']['paginate'] = {'start': 0, 'rows': int(max_models)}
+    result = read_json_from_url(RCSB_SEARCH_URL, query)
+    if result is None:
+        return []
+    return [hit['identifier'] for hit in result.get('result_set', [])]
+
+def csm_cif_url(csmid):
+    """
+    OCT2026: Returns the URL of the mmCIF file of a computed structure model (CSM), read from the database
+    that made it. RCSB PDB says where each CSM comes from (rcsb_comp_model_provenance); for AlphaFold DB
+    models, the AlphaFold DB API gives the URL of the latest model version.
+
+    Parameters:
+    -----------
+    csmid : str
+        The RCSB ID of the CSM, e.g. 'AF_AFP60174F1'.
+
+    Returns:
+    --------
+    url : str
+        The URL of the mmCIF file, e.g. 'https://alphafold.ebi.ac.uk/files/AF-P60174-F1-model_v6.cif'.
+        None if the model does not come from AlphaFold DB, or AlphaFold DB does not have it.
+    """
+    provenance = read_json_from_url(RCSB_ENTRY_URL+csmid).get('rcsb_comp_model_provenance', {})
+    if provenance.get('source_db') != 'AlphaFoldDB':
+        return None
+    entry_id = provenance['entry_id']  # e.g. 'AF-P60174-F1'
+    try:
+        models = read_json_from_url(AFDB_API_URL+entry_id.split('-')[1])
+    except HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+    for model in models:
+        if model.get('entryId') == entry_id:
+            return model['cifUrl']
+    return None
+
+def download_csm_from_keyword(keyword, projdir=None, max_models=None):
+    """
+    OCT2026: Optional step. Finds computed structure models (CSMs) in RCSB PDB with a full text search
+    (search_csm_from_keyword) and downloads their mmCIF files to the raw_bank of the project directory,
+    next to the experimental structures. Each model is saved as CSMID+01.cif, where CSMID is the RCSB ID
+    (AF_AFP60174F1+01.cif), like the first biological assembly of an experimental structure.
+    Only AlphaFold DB models are downloaded; other models are skipped with a message.
+    CSMs contain one protein chain only (see CSM_WARNING), which is printed first.
+
+    Parameters:
+    -----------
+    keyword : str
+        The text to search for, e.g. 'triosephosphate isomerase'.
+    projdir : str, optional
+        The path to the project directory where the files will be saved. If None, a message will display.
+    max_models : int, optional
+        The largest number of CSMs to download, best matches first. Default is None (all of them).
+
+    Returns:
+    --------
+    csmids : list of str
+        The RCSB IDs of the CSMs that were downloaded.
+    """
+    if projdir is None:
+        print("Please provide a project directory ...")
+        return []
+    print(CSM_WARNING)
+    download_dir=projdir+'/raw_bank'
+    if not os.path.exists(download_dir):
+        os.mkdir(download_dir)
+    csmids = search_csm_from_keyword(keyword, max_models=max_models)
+    print('{0} computed structure models were found for {1!r}'.format(len(csmids), keyword))
+    downloaded = []
+    for csmid in csmids:
+        url = csm_cif_url(csmid)
+        if url is None:
+            print('Skipping {0}: no mmCIF file from AlphaFold DB'.format(csmid))
+            continue
+        download_from_url(url, download_dir+'/{0}+01.cif'.format(csmid))
+        downloaded.append(csmid)
+    print('{0} computed structure models were downloaded to {1}'.format(len(downloaded), download_dir))
+    return downloaded
+
 def get_idset_from_metadata(metadata):
     """
     Extracts and returns a set of unique PDB IDs from the provided metadata.
@@ -235,6 +378,50 @@ def retrieve_sequence_from_PDB(keyword, mode='sequence', update=True, seqfile=No
                     elif(mode=='metadata'):
                         metadata.append(line)
                         nextline = True
+            prevline=line
+    return np.atleast_1d(sequence), np.atleast_1d(metadata)
+#
+def retrieve_sequences_matching_from_PDB(ref_sequences, seqfile):
+    """
+    OCT2026: Retrieves the sequences of the PDB sequence file that match any of the reference sequences,
+    reading the file only once. It finds the same chains as calling
+    retrieve_sequence_from_PDB(seq, mode='sequence', update=False) for every reference sequence: a chain
+    matches when its sequence ends with a reference sequence, ignoring case. That reads the whole file once
+    per reference sequence, which takes more than an hour for triosephosphate isomerase (642 reference
+    sequences). Each matching chain is listed once, in the order of the file.
+
+    Parameters:
+    -----------
+    ref_sequences : list of str
+        The reference sequences, e.g. those returned by retrieve_sequence_from_PDB(keyword, mode='metadata').
+    seqfile : str
+        The path to the sequence file.
+
+    Returns:
+    --------
+    sequence : numpy.ndarray
+        The sequences that match a reference sequence.
+    metadata : numpy.ndarray
+        The metadata of the matching sequences (fasta files description line).
+    """
+    # Reference sequences grouped by length, so the end of each chain is looked up once per length
+    refs_by_length = {}
+    for seq in ref_sequences:
+        seq = seq.strip().upper()
+        if seq:
+            refs_by_length.setdefault(len(seq), set()).add(seq)
+    metadata = []
+    sequence = []
+    with open(seqfile) as f:
+        prevline='#'
+        for line in f:
+            if not line.startswith('>'):
+                seq = line.rstrip('\n').upper()
+                for length, refs in refs_by_length.items():
+                    if len(seq) >= length and seq[len(seq)-length:] in refs:
+                        metadata.append(prevline)
+                        sequence.append(line)
+                        break
             prevline=line
     return np.atleast_1d(sequence), np.atleast_1d(metadata)
 #

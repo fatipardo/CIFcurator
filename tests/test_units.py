@@ -17,6 +17,7 @@ import tempfile
 import time
 import unittest
 from unittest import mock
+from urllib.error import HTTPError
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _support  # noqa: E402  (makes CIFcurator importable from src/)
@@ -163,6 +164,12 @@ _pdbx_struct_assembly_gen.asym_id_list A,B
 """ + ATOM_HEADER + ATOMS + "#\n"
 # A wwPDB assembly file, as downloaded in Step 1: no assembly tables, and the PDB ID is hidden.
 ASSEMBLY_FILE = COMMON.replace('9XYZ', 'XXXX') + ATOM_HEADER + ATOMS + "#\n"
+# OCT2026: an AlphaFold DB model, as downloaded by download_csm_from_keyword: no assembly tables and no
+# experimental method (_exptl, _refine)
+CSM_FILE = (COMMON.replace('9XYZ', 'AF-P99999-F1')
+            .replace("_exptl.method 'X-RAY DIFFRACTION'\n#\n", '')
+            .replace("_refine.pdbx_refine_id 'X-RAY DIFFRACTION'\n_refine.ls_d_res_high 2.00\n#\n", '')
+            + ATOM_HEADER + ATOMS + "#\n")
 
 
 class TempDirTestCase(unittest.TestCase):
@@ -356,6 +363,93 @@ class TestPdbUtils(TempDirTestCase):
             mock.call(url + 'pdb_00001aw1-assembly10.cif.gz', '/some/dir/pdb_00001aw1+10.cif', gunzip=True)])
 
 
+class TestRetrieveSequencesMatching(TempDirTestCase):
+    """OCT2026: Step 1 search by sequence, reading pdb_seqres once for all the reference sequences."""
+    SEQRES = (">pdb_00001aaa_A mol:protein length:8  TEST PROTEIN\nMKVLAAGG\n"
+              ">pdb_00001aaa_B mol:protein length:8  TEST PROTEIN\nMKVLAAGG\n"
+              ">pdb_00002bbb_A mol:protein length:12  TAGGED TEST PROTEIN\nHHHHMKVLAAGG\n"
+              ">pdb_00003ccc_A mol:protein length:12  LONGER TEST PROTEIN\nMKVLAAGGWWWW\n"
+              ">pdb_00004ddd_A mol:protein length:6  OTHER PROTEIN\nPPPPPP\n"
+              ">pdb_00005eee_A mol:protein length:6  OTHER PROTEIN\npppppp\n"
+              ">pdb_00006fff_A mol:na length:4  RNA\nACGU\n")
+
+    def test_same_chains_as_one_search_per_reference_sequence(self):
+        seqfile = self.write('seqres.txt', self.SEQRES)
+        # As in the Step 1 notebook: reference sequences keep their newline, and some repeat
+        ref_sequences = ['MKVLAAGG\n', 'MKVLAAGG\n', 'PPPPPP\n']
+        old_seq, old_met = [], []
+        for seq in ref_sequences:
+            s, m = pdbutils.retrieve_sequence_from_PDB(seq, mode='sequence', update=False, seqfile=seqfile)
+            old_seq += list(s)
+            old_met += list(m)
+        new_seq, new_met = pdbutils.retrieve_sequences_matching_from_PDB(ref_sequences, seqfile)
+        self.assertEqual(set(zip(new_met, new_seq)), set(zip(old_met, old_seq)))
+        # Each chain once, in the order of the file; 3ccc_A only has the reference sequence in the middle
+        self.assertEqual([m.split()[0] for m in new_met],
+                         ['>pdb_00001aaa_A', '>pdb_00001aaa_B', '>pdb_00002bbb_A', '>pdb_00004ddd_A', '>pdb_00005eee_A'])
+        self.assertEqual(pdbutils.get_idset_from_metadata(new_met),
+                         ['pdb_00001aaa', 'pdb_00002bbb', 'pdb_00004ddd', 'pdb_00005eee'])
+
+
+class TestCsmDownload(TempDirTestCase):
+    """OCT2026: optional download of computed structure models (CSMs) from AlphaFold DB, found with the RCSB Search API."""
+    def test_search_csm_from_keyword_asks_for_computational_models(self):
+        hits = {'result_set': [{'identifier': 'AF_AFP60174F1'}, {'identifier': 'MA_MABAKCEPC'}]}
+        with mock.patch.object(pdbutils, 'read_json_from_url', return_value=hits) as rd:
+            self.assertEqual(pdbutils.search_csm_from_keyword('triosephosphate isomerase', max_models=2),
+                             ['AF_AFP60174F1', 'MA_MABAKCEPC'])
+        url, query = rd.call_args[0]
+        self.assertEqual(url, pdbutils.RCSB_SEARCH_URL)
+        self.assertEqual(query['query']['parameters']['value'], 'triosephosphate isomerase')
+        self.assertEqual(query['request_options']['results_content_type'], ['computational'])
+        self.assertEqual(query['request_options']['paginate'], {'start': 0, 'rows': 2})
+
+    def test_search_csm_from_keyword_without_limit_returns_all_hits(self):
+        with mock.patch.object(pdbutils, 'read_json_from_url', return_value={'result_set': []}) as rd:
+            pdbutils.search_csm_from_keyword('lysozyme')
+        self.assertTrue(rd.call_args[0][1]['request_options']['return_all_hits'])
+
+    def test_search_csm_from_keyword_nothing_found(self):
+        # The RCSB Search API answers 204 (No Content), read as None
+        with mock.patch.object(pdbutils, 'read_json_from_url', return_value=None):
+            self.assertEqual(pdbutils.search_csm_from_keyword('no such protein'), [])
+
+    def test_csm_cif_url_from_alphafold_db(self):
+        documents = {
+            pdbutils.RCSB_ENTRY_URL + 'AF_AFP60174F1':
+                {'rcsb_comp_model_provenance': {'entry_id': 'AF-P60174-F1', 'source_db': 'AlphaFoldDB'}},
+            pdbutils.AFDB_API_URL + 'P60174':
+                [{'entryId': 'AF-P60174-F1', 'cifUrl': 'https://alphafold.ebi.ac.uk/files/AF-P60174-F1-model_v6.cif'}]}
+        with mock.patch.object(pdbutils, 'read_json_from_url', side_effect=lambda url: documents[url]):
+            self.assertEqual(pdbutils.csm_cif_url('AF_AFP60174F1'),
+                             'https://alphafold.ebi.ac.uk/files/AF-P60174-F1-model_v6.cif')
+
+    def test_csm_cif_url_other_databases_are_not_supported(self):
+        modelarchive = {'rcsb_comp_model_provenance': {'entry_id': 'ma-bak-cepc', 'source_db': 'ModelArchive'}}
+        with mock.patch.object(pdbutils, 'read_json_from_url', return_value=modelarchive):
+            self.assertIsNone(pdbutils.csm_cif_url('MA_MABAKCEPC'))
+
+    def test_csm_cif_url_missing_from_alphafold_db(self):
+        provenance = {'rcsb_comp_model_provenance': {'entry_id': 'AF-P99999-F1', 'source_db': 'AlphaFoldDB'}}
+        def read(url):
+            if url.startswith(pdbutils.AFDB_API_URL):
+                raise HTTPError(url, 404, 'Not Found', None, None)
+            return provenance
+        with mock.patch.object(pdbutils, 'read_json_from_url', side_effect=read):
+            self.assertIsNone(pdbutils.csm_cif_url('AF_AFP99999F1'))
+
+    def test_download_csm_from_keyword_saves_csmid_plus_01(self):
+        urls = {'AF_AFP60174F1': 'https://alphafold.ebi.ac.uk/files/AF-P60174-F1-model_v6.cif', 'MA_MABAKCEPC': None}
+        with mock.patch.object(pdbutils, 'search_csm_from_keyword', return_value=list(urls)), \
+                mock.patch.object(pdbutils, 'csm_cif_url', side_effect=urls.get), \
+                mock.patch.object(pdbutils, 'download_from_url') as dl, quiet() as out:
+            downloaded = pdbutils.download_csm_from_keyword('triosephosphate isomerase', projdir=self.tmp)
+        self.assertEqual(downloaded, ['AF_AFP60174F1'])
+        dl.assert_called_once_with(urls['AF_AFP60174F1'], self.tmp + '/raw_bank/AF_AFP60174F1+01.cif')
+        self.assertIn('ONE PROTEIN CHAIN ONLY', out.getvalue())
+        self.assertIn('Skipping MA_MABAKCEPC', out.getvalue())
+
+
 class TestRunScript(TempDirTestCase):
     def test_interrupt_kills_script_and_its_children(self):
         # The script starts a long-running child, as the alignment scripts start MUSCLE.
@@ -525,6 +619,26 @@ class TestCleanAssemblyFile(TempDirTestCase):
         with open(os.path.join(self.tmp, 'clean_bank', '9xyz+01.cif')) as a, \
                 open(os.path.join(self.tmp, 'simple_bank', '9xyz+01.cif')) as b:
             self.assertEqual(a.read(), b.read())
+
+
+class TestCleanCsmFile(TempDirTestCase):
+    """OCT2026: Step 2 on a computed structure model (CSMID+01.cif), which has no experimental method."""
+    def clean_bank(self):
+        self.write('raw_bank/AF_AFP99999F1+01.cif', CSM_FILE)
+        os.makedirs(os.path.join(self.tmp, 'clean_bank'))
+        with quiet():
+            cleanutils.process(projdir=self.tmp, step='clean', source='raw_bank', target='clean_bank')
+        return os.path.join(self.tmp, 'clean_bank', 'AF_AFP99999F1+01.cif')
+
+    def test_no_exptl_is_written(self):
+        path = self.clean_bank()
+        with open(path) as f:
+            text = f.read()
+        self.assertIn("_entry.id   'AF_AFP99999F1'", text)
+        self.assertNotIn('_exptl', text)
+
+    def test_consistent_with_mmcif_dictionary(self):
+        self.assertEqual(_support.mmcif_problems(self.clean_bank()), [])
 
 
 class TestStepsKeepFilesConsistent(TempDirTestCase):

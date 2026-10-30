@@ -205,18 +205,23 @@ def clean_cif(oldfile, newfile, pdbformat='.cif'):
 
             # Writes Experimental method category
             # OCT2026: with its key item entry_id. _exptl.resolution is not a dictionary item and is not written
-            newciffile.write("#" + "\n")
-            newciffile.write("loop_" + "\n")
-            newciffile.write("_exptl.entry_id" + "\n")
-            newciffile.write("_exptl.method" + "\n")
+            # OCT2026: computed structure models (e.g. AlphaFold DB) have no experimental method, and _exptl
+            # is not written for them ('THEORETICAL MODEL' is only allowed as a supporting method)
             if '_exptl.method' in mmcif_dict:
                 L1 = mmcif_dict['_exptl.method']
             elif '_refine_hist.pdbx_refine_id' in mmcif_dict:
                 L1 = mmcif_dict['_refine_hist.pdbx_refine_id']
-            else:
+            elif '_refine.pdbx_refine_id' in mmcif_dict:
                 L1 = mmcif_dict['_refine.pdbx_refine_id']
+            else:
+                L1 = []
             if not isinstance(L1, list):
                 L1 = [L1]
+            if L1:
+                newciffile.write("#" + "\n")
+                newciffile.write("loop_" + "\n")
+                newciffile.write("_exptl.entry_id" + "\n")
+                newciffile.write("_exptl.method" + "\n")
             for i in range(len(L1)):
                 newciffile.write(entry_id + " '" + L1[i] + "'\n")
 

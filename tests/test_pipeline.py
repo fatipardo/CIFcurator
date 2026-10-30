@@ -110,15 +110,10 @@ class Pipeline:
             ref_sequences, ref_metadata = pdbutils.retrieve_sequence_from_PDB(
                 KEYWORD, mode='metadata', update=False, seqfile=self.seqfile)
             self.keyword_ids = set(pdbutils.get_idset_from_metadata(ref_metadata))
-            # The tutorial runs a sequence search for every reference hit (~650 full scans of
-            # pdb_seqres.fasta, close to an hour); here only for those of the test entries.
-            subset_sequences = sorted({seq for seq, meta in zip(ref_sequences, ref_metadata)
-                                       if entry_id(meta) in PDB_IDS})
-            self.sequence_metadata = []
-            for seq in subset_sequences:
-                _, meta = pdbutils.retrieve_sequence_from_PDB(seq, mode='sequence', update=False,
-                                                              seqfile=self.seqfile)
-                self.sequence_metadata.extend(meta)
+            # OCT2026: as in the tutorial, a sequence search for every reference hit, now in a single
+            # reading of pdb_seqres.fasta (before: one reading per hit, close to an hour)
+            _, meta = pdbutils.retrieve_sequences_matching_from_PDB(ref_sequences, self.seqfile)
+            self.sequence_metadata = list(meta)
             self.sequence_ids = set(pdbutils.get_idset_from_metadata(self.sequence_metadata))
             cifcurator_io.check_project(projdir=self.root, level='raw_bank')
             pdbutils.download_pdb_from_metadata(
