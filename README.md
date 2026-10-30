@@ -23,7 +23,7 @@ We have created Jupyter Notebooks that provide a step-by-step guide for creating
 
 Download all structures that match the name and sequence of your molecule of interest.
 
-Optionally, also download the computed structure models (CSMs) that match the name, from AlphaFold DB. CSMs contain one protein chain only (no nucleic acids, ligands or other copies of the protein), so this step is off by default.
+Optionally, also download the computed structure models (CSMs) that match the name, from AlphaFold DB. CSMs contain one protein chain only (no nucleic acids, ligands, or other copies of the protein), so this step is off by default. The user must specify whether to include CSMs in the dataset and how many models to include. 
 
 > **Note:** This notebook sometimes does not display on the Github website, download and open in your browser.   
 
