@@ -23,6 +23,8 @@ We have created Jupyter Notebooks that provide a step-by-step guide for creating
 
 Download all structures that match the name and sequence of your molecule of interest.
 
+Optionally, also download the computed structure models (CSMs) that match the name, from AlphaFold DB. CSMs contain one protein chain only (no nucleic acids, ligands or other copies of the protein), so this step is off by default.
+
 > **Note:** This notebook sometimes does not display on the Github website, download and open in your browser.   
 
 ### [Step 2. Clean Structures and Create one CIF file per biological assembly.](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step2.CreateOneCIFFilePerBiologicalAssembly.ipynb)
