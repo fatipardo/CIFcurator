@@ -1,6 +1,10 @@
 """
 End-to-end test of the CIFcurator workflow, Steps 1 -> 5, on live PDB data.
 
+OCT2026: Steps 1 and 2 here are the two parts of Step 1 (download, then clean), which users now run with
+CIFcurator_Download.py. They call the library functions of the script, so that only five entries are
+downloaded. TestDownloadScript runs the script itself, on a keyword with few entries.
+
 Step 1 searches the current pdb_seqres.fasta of the wwPDB beta archive as in the Step 1 tutorial. The number of
 hits grows over time, so the test does not check the total. It checks that a fixed
 set of long-established TIM entries is still found, downloads only those, and runs
@@ -412,6 +416,54 @@ class TestStep5ResidueID(unittest.TestCase):
         for bank in ('standard_ChainID_bank', 'standard_ResidueID_bank'):
             stray = [f for ext in ('fa', 'fasta', 'afa') for f in glob.glob(PIPELINE.path(bank, '*.' + ext))]
             self.assertFalse(stray)
+
+
+class TestDownloadScript(unittest.TestCase):
+    """
+    OCT2026: Step 1 as users run it, with CIFcurator_Download.py. The script downloads every entry that matches
+    the keyword, so it uses a keyword with few entries instead of triosephosphate isomerase, and one CSM.
+    """
+    KEYWORD = 'subtilisin carlsberg'
+    # Long-established entries; the total grows as the PDB grows
+    KNOWN = ['pdb_00001cse+01', 'pdb_00001sbc+01', 'pdb_00001sca+01', 'pdb_00001scb+01']
+
+    @classmethod
+    def setUpClass(cls):
+        if _support.SKIP_NETWORK:
+            raise unittest.SkipTest('CIFCURATOR_SKIP_NETWORK is set')
+        cls.root = tempfile.mkdtemp(prefix='cifcurator_download_')
+        cls.projdir = os.path.join(cls.root, 'proj')
+        cls.log = os.path.join(cls.root, 'download.log')
+        _support.run_script('CIFcurator_Download.py',
+                            [cls.KEYWORD, '--projdir', cls.projdir, '--seqfile', _support.seqres_file(),
+                             '--csm', 'True', '--max-models', '1'],
+                            '', cwd=os.path.join(cls.root, 'cwd'), log_path=cls.log)
+
+    @classmethod
+    def tearDownClass(cls):
+        if _support.KEEP_OUTPUT:
+            print('\nDownload script output kept in {0}'.format(cls.root), file=sys.stderr)
+        else:
+            shutil.rmtree(cls.root, ignore_errors=True)
+
+    def names(self, bank):
+        return sorted(os.path.basename(f)[:-4] for f in glob.glob(os.path.join(self.projdir, bank, '*.cif')))
+
+    def test_known_entries_downloaded(self):
+        missing = set(self.KNOWN) - set(self.names('raw_bank'))
+        self.assertFalse(missing, 'not downloaded for {0!r}: {1}'.format(self.KEYWORD, sorted(missing)))
+
+    def test_one_csm_downloaded(self):
+        self.assertEqual(len([n for n in self.names('raw_bank') if n.startswith('AF_')]), 1)
+
+    def test_seqfile_given_is_not_copied_to_projdir(self):
+        self.assertFalse(os.path.exists(os.path.join(self.projdir, 'seqres.txt')))
+
+    def test_every_file_cleaned(self):
+        self.assertEqual(self.names('clean_bank'), self.names('raw_bank'))
+        for name in self.names('clean_bank'):
+            with self.subTest(structure=name):
+                self.assertEqual(_support.mmcif_problems(os.path.join(self.projdir, 'clean_bank', name + '.cif')), [])
 
 
 if __name__ == '__main__':

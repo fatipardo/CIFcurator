@@ -93,6 +93,14 @@ class ScriptFailed(AssertionError):
     pass
 
 
+def script_command(script, args):
+    """Command line and environment that run one of the scripts in scripts/ with this checkout's CIFcurator."""
+    env = os.environ.copy()
+    env['PYTHONPATH'] = os.pathsep.join(p for p in (_SHIM_DIR, env.get('PYTHONPATH')) if p)
+    env['PYTHONWARNINGS'] = 'ignore::SyntaxWarning'
+    return [sys.executable, os.path.join(SCRIPTS_DIR, script)] + list(args), env
+
+
 def run_script(script, args, answers, cwd, log_path, timeout=None):
     """
     Run one of the interactive scripts in scripts/, feeding `answers` on stdin.
@@ -108,10 +116,7 @@ def run_script(script, args, answers, cwd, log_path, timeout=None):
     """
     timeout = SCRIPT_TIMEOUT if timeout is None else timeout
     os.makedirs(cwd, exist_ok=True)
-    env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join(p for p in (_SHIM_DIR, env.get('PYTHONPATH')) if p)
-    env['PYTHONWARNINGS'] = 'ignore::SyntaxWarning'
-    cmd = [sys.executable, os.path.join(SCRIPTS_DIR, script)] + list(args)
+    cmd, env = script_command(script, args)
     with open(log_path, 'w') as log:
         # New session, so a timeout also kills MUSCLE started by the script.
         proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=log,

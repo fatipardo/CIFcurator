@@ -15,21 +15,23 @@ With CIFcurator, users can create their own self-consistent structure dataset, e
 
 ## CIFcurator Workflow
 
-We have created Jupyter Notebooks that provide a step-by-step guide for creating a curated ensemble of structures using CIFcurator. 
+We have created a command-line script for each step, and Jupyter Notebooks that provide a step-by-step guide for creating a curated ensemble of structures using CIFcurator. 
 
 ![Workflow flowchart](./images/FlowChart.png)
 
-### [Step 1. Download structural ensemble form RCSB PDB.](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step1.DownloadStructuralEnsembleFromRCSBPDB.ipynb)
+### [Step 1. Download and clean structures from the RCSB PDB](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step1.DownloadAndCleanStructures.ipynb)
 
-Download all structures that match the name and sequence of your molecule of interest.
+Run `CIFcurator_Download.py` in the terminal to download all structures that match the name and sequence of your molecule of interest, and clean them. Use quotes when the keyword has more than one word:
 
-Optionally, also download the computed structure models (CSMs) that match the name, from AlphaFold DB. The user must specify whether to include CSMs in the dataset and how many models to include, and the tutorial shows how to do so. 
+> CIFcurator_Download.py "triosephosphate isomerase" --projdir ./TIM --csm False
+
+The structures are downloaded to `raw_bank`, one CIF file per biological assembly. Optionally (`--csm True`), the script also downloads the computed structure models (CSMs) that match the name, from AlphaFold DB; `--max-models` sets how many models to include. Run `CIFcurator_Download.py -h` to see all the options.
+
+The script then cleans the structures and saves them in `clean_bank`, one CIF file per biological assembly. It reduces the number of data blocks included in the CIF file, keeping those that the coordinates refer to, so that the files stay consistent with the mmCIF dictionary. Each file declares the dictionary it follows (PDBx/mmCIF `mmcif_pdbx.dic`, version 5.418) in its `_audit_conform` category.
+
+The notebook explains each part of the script, and runs it for the tutorial. (This step used to be two steps run from notebooks, 'Step 1. Download structural ensemble from RCSB PDB' and 'Step 2. Clean Structures and Create one CIF file per biological assembly'; they are now one.)
 
 > **Note:** This notebook sometimes does not display on the Github website, download and open in your browser.   
-
-### [Step 2. Clean Structures and Create one CIF file per biological assembly.](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step2.CreateOneCIFFilePerBiologicalAssembly.ipynb)
-
-A CIF file may contain multiple biological assemblies within one asymmetric unit. In this step we separate these biological assemblies, and create one CIF file for each one. We also reduce the number of data blocks included in the CIF file, keeping those that the coordinates refer to, so that the files stay consistent with the mmCIF dictionary. Each file declares the dictionary it follows (PDBx/mmCIF `mmcif_pdbx.dic`, version 5.418) in its `_audit_conform` category. (This step used to be two steps, 'clean' and 'simplify'; they are now one.)
 
 ### [Step 3.1. Assign MOLID to the entities found in the CIF files, version 1](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step3.1.AssignMolIDToEntitiesFoundInCIFfiles1.ipynb)
 
@@ -45,17 +47,17 @@ Same as Step 3.1, but in our example, we give the same MOL ID to different entit
 In this notebook we show how to perform concatenations and conversions by using a conversion file (useful when a structure contains many entities). 
 We also show an option that allows users to keep a record of the changes introduced in this step (track old chain names, new chain names, entity names and file names).
 
-### [Step 4. Chain ID standardization](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step4.ChainIDStandardization.ipynb)
+### [Step 4.1. Chain ID standardization](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step4.1.ChainIDStandardization.ipynb)
 
 Step 4 allows us to name each entity with whatever name we want. Step 4 makes sure that the chains that are the same (we do sequence alignment to determine similarity) in different CIF files, have a consistent name. Sometimes entities/chains are mislabeled in deposited structures, this step is recommended to identify any such cases. This step can also be used to identify any possible outliers, by seeing how all chains score compared to our reference. 
 
 We divide the tutorial for this step in two parts. The second part shows how to generate the reference sequences, as well as showing how to load them when running the script. Doing this could also help speed up this step, as it allows to run the script in parallel in batches. This is particularly important when working with large datasets, or with molecules with many chains. 
 
-### [Step 4.2 Chain ID standardization: generate reference sequences and how to load them](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step4.2.ChainIDStandardization.ipynb)
+### [Step 4.2. Chain ID standardization: generate reference sequences and how to load them](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step4.2.ChainIDStandardization.ipynb)
 
 In this tutorial, we show how the reference sequence is selected by our script, and show how the user can modify it. It also shows how to load the reference sequences, creating the opportunity for running this step in parallel, in batches, speeding up the whole process. 
 
-### [Step 5. Residue ID Standardization](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step5.ResidueIDStandardization.ipynb)
+### [Step 5. Residue ID standardization](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Step5.ResidueIDStandardization.ipynb)
 
 Following step 4, now that we have consistent chain (entity) naming among all structures in the ensemble, we want to make sure that the numbering is also consistent (that the same residue position has the same number in all structures).
 
@@ -66,10 +68,10 @@ This is also the last step! You have a curated dataset!
 
 ## Other tools
 
-[Check project mini tutorial](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/CheckProject_CheckCreateDelete.ipynb). This mini tutorial can be run after doing step 2. `Check_project` checks if a directory has been created, if not it creates the directory and an info.txt file with the creation date. 
+[Check project mini tutorial](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/CheckProject_CheckCreateDelete.ipynb). This mini tutorial can be run after doing step 1. `Check_project` checks if a directory has been created, if not it creates the directory and an info.txt file with the creation date. 
 
 [Dataset Summary](https://github.com/fatipardo/CIFcurator/blob/master/Notebooks/Analysis.SummaryPDBDataset.ipynb).
-This notebook can be run after doing step 0. It creates plots that summarize important information from your dataset such as organism of origin, resolution, year, and method used to solve the structure. The notebook also creates a pandas dataframe so users can create their own personalized plots.
+This notebook can be run after doing step 1. It creates plots that summarize important information from your dataset such as organism of origin, resolution, year, and method used to solve the structure. The notebook also creates a pandas dataframe so users can create their own personalized plots.
 
 ## Installation
 
@@ -106,7 +108,14 @@ Ensuring you have the pre-requisites will facilitate the installation process!
 > python -m ipykernel install --user --name CIFcurator --display-name CIFcurator
 
 
-4. Running notebook:
+4. Running the scripts:
+
+> CIFcurator_Download.py -h
+
+- The scripts (`CIFcurator_Download.py`, `CIFcurator_MolID.py`, `CIFcurator_ChainStandardization.py` and `CIFcurator_ResidueStandardization.py`) are installed by `pip install .`, and can be run from any directory while the environment is active.
+- The option `-h` prints the help of each script.
+
+5. Running notebook:
 
 > cd Notebooks
 
