@@ -80,7 +80,7 @@ else:
 
 ref_sequences, ref_metadata = pdbutils.retrieve_sequence_from_PDB(keyword, mode='metadata', update=update, seqfile=seqfile)
 print('{0} sequences were identified as potential hits!'.format(len(ref_sequences)))
-if len(ref_sequences) == 0:
+if len(ref_sequences) == 0 and not args.csm:
     parser.exit(1, 'No sequence in the PDB matches the keyword {0!r}. Nothing to download.\n'.format(keyword))
 
 sequences, metadata = pdbutils.retrieve_sequences_matching_from_PDB(ref_sequences, seqfile)
