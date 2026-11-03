@@ -334,20 +334,24 @@ def get_idset_from_metadata(metadata):
     return sorted(set(idlist))
 
 #
-def retrieve_sequence_from_PDB(keyword, mode='sequence', update=True, seqfile=None):
+def retrieve_sequence_from_PDB(keyword, mode='sequence', update=True, seqfile=None, regex=False):
     """
     Retrieves sequences or metadata from a PDB sequence file based on the keyword match.
 
     Parameters:
     ---------
     keyword : str
-        The keyword to search for in the sequence or metadata.
+        The keyword to search for in the sequence or metadata, ignoring case. By default it is matched as
+        plain text: characters such as ( ) + . are not special, e.g. 'NAD(P)H' finds 'NAD(P)H DEHYDROGENASE'.
     mode : str, optional
         Specifies whether to match the keyword in the 'sequence' or 'metadata'. Default is 'sequence'.
     update : bool, optional
         If True, the sequence file will be downloaded or updated before searching. Default is True.
     seqfile : str, optional
         The path to the sequence file. If None, the file will be downloaded if update is True.
+    regex : bool, optional
+        If True, the keyword is a Python regular expression instead, e.g. 'triose[- ]?phosphate isomerase'
+        or 'hemoglobin|haemoglobin'. Default is False.
 
     Returns:
     --------
@@ -360,6 +364,9 @@ def retrieve_sequence_from_PDB(keyword, mode='sequence', update=True, seqfile=No
         # NOV2026: the existing seqfile is not removed first. download_from_url replaces it only once
         # the new file is complete, so a failed download keeps the old one.
         seqfile = retrieve_seqfile(seqfile=seqfile)
+    # NOV2026: unless regex=True, the keyword is escaped, so molecule names with parentheses etc.
+    # are not read as regexes.
+    pattern = re.compile(keyword if regex else re.escape(keyword), flags=re.I)
     metadata = []
     sequence = []
     with open(seqfile) as f:
@@ -370,7 +377,7 @@ def retrieve_sequence_from_PDB(keyword, mode='sequence', update=True, seqfile=No
                 sequence.append(line)
                 nextline=False
             else:
-                hit = re.findall(keyword, line, flags=re.I)
+                hit = pattern.search(line)
                 if hit:
                     if(mode=='sequence'):
                         metadata.append(prevline)

@@ -269,6 +269,25 @@ class TestPdbUtils(TempDirTestCase):
         self.assertEqual(len(seqs), 3)
         self.assertEqual(pdbutils.get_idset_from_metadata(meta), self.IDS)
 
+    def test_keyword_is_matched_as_plain_text(self):
+        seqfile = self.write('seqres.txt', '>pdb_00001abc_A mol:protein length:4  NAD(P)H DEHYDROGENASE\nMKLV\n'
+                                           '>pdb_00002abc_A mol:protein length:4  NADPH DEHYDROGENASE\nMKLW\n')
+        seqs, meta = pdbutils.retrieve_sequence_from_PDB('nad(p)h', mode='metadata', update=False, seqfile=seqfile)
+        self.assertEqual(pdbutils.get_idset_from_metadata(meta), ['pdb_00001abc'])
+        seqs, meta = pdbutils.retrieve_sequence_from_PDB('NAD(P', mode='metadata', update=False, seqfile=seqfile)
+        self.assertEqual(pdbutils.get_idset_from_metadata(meta), ['pdb_00001abc'])
+
+    def test_keyword_is_matched_as_regex_on_request(self):
+        seqfile = self.write('seqres.txt', '>pdb_00001abc_A mol:protein length:4  TRIOSE-PHOSPHATE ISOMERASE\nMKLV\n'
+                                           '>pdb_00002abc_A mol:protein length:4  TRIOSEPHOSPHATE ISOMERASE\nMKLW\n'
+                                           '>pdb_00003abc_A mol:protein length:4  TRIOSE PHOSPHATE KINASE\nMKLY\n')
+        seqs, meta = pdbutils.retrieve_sequence_from_PDB('triose-?phosphate isomerase', mode='metadata',
+                                                         update=False, seqfile=seqfile, regex=True)
+        self.assertEqual(pdbutils.get_idset_from_metadata(meta), ['pdb_00001abc', 'pdb_00002abc'])
+        seqs, meta = pdbutils.retrieve_sequence_from_PDB('triose-?phosphate isomerase', mode='metadata',
+                                                         update=False, seqfile=seqfile)
+        self.assertEqual(len(meta), 0)
+
     def test_failed_update_keeps_existing_seqfile(self):
         class Short(io.BytesIO):
             def info(self):
@@ -508,6 +527,26 @@ class TestRunScript(TempDirTestCase):
                 break
             time.sleep(0.1)
         self.assertIn(state, ('', 'Z'), 'child process {0} still running'.format(child))
+
+
+class TestDownloadScriptArguments(TempDirTestCase):
+    """CIFcurator_Download.py rejects bad --regex input before it creates or downloads anything."""
+    def run_download(self, *args):
+        projdir = os.path.join(self.tmp, 'proj')
+        cmd, env = _support.script_command('CIFcurator_Download.py', list(args) + ['--projdir', projdir])
+        proc = subprocess.run(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+        self.assertFalse(os.path.exists(projdir))
+        return proc
+
+    def test_regex_with_csm_needs_csm_keyword(self):
+        proc = self.run_download('h(a)?emoglobin', '--regex', '--csm', 'True')
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn('--regex with --csm True needs --csm-keyword', proc.stderr)
+
+    def test_invalid_regex_is_an_error(self):
+        proc = self.run_download('NAD(P', '--regex')
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn('not a valid regular expression', proc.stderr)
 
 
 class TestCheckProject(TempDirTestCase):
