@@ -357,8 +357,8 @@ def retrieve_sequence_from_PDB(keyword, mode='sequence', update=True, seqfile=No
         A list of metadata associated with the matching sequences (fasta files description line).
     """
     if update:
-        with suppress(FileNotFoundError):
-            os.remove(seqfile) # remove existing seqfile if any
+        # NOV2026: the existing seqfile is not removed first. download_from_url replaces it only once
+        # the new file is complete, so a failed download keeps the old one.
         seqfile = retrieve_seqfile(seqfile=seqfile)
     metadata = []
     sequence = []

@@ -269,6 +269,32 @@ class TestPdbUtils(TempDirTestCase):
         self.assertEqual(len(seqs), 3)
         self.assertEqual(pdbutils.get_idset_from_metadata(meta), self.IDS)
 
+    def test_failed_update_keeps_existing_seqfile(self):
+        class Short(io.BytesIO):
+            def info(self):
+                return {'Content-Length': '4096'}
+        seqfile = self.write('seqres.txt', self.SEQRES)
+        with mock.patch.object(pdbutils, 'urlopen', return_value=Short(b'\x1f\x8b')):
+            with self.assertRaises(pdbutils.ContentTooShortError):
+                pdbutils.retrieve_sequence_from_PDB('triosephosphate isomerase', mode='metadata',
+                                                    update=True, seqfile=seqfile)
+        with open(seqfile) as f:
+            self.assertEqual(f.read(), self.SEQRES)
+        self.assertEqual(os.listdir(self.tmp), ['seqres.txt'])
+
+    def test_update_replaces_existing_seqfile(self):
+        seqfile = self.write('seqres.txt', self.SEQRES)
+        new = self.SEQRES.replace('2y62', '3y62')
+        class Response(io.BytesIO):
+            def info(self):
+                return {}
+        with mock.patch.object(pdbutils, 'urlopen', return_value=Response(gzip.compress(new.encode()))), quiet():
+            seqs, meta = pdbutils.retrieve_sequence_from_PDB('triosephosphate isomerase', mode='metadata',
+                                                             update=True, seqfile=seqfile)
+        self.assertEqual(pdbutils.get_idset_from_metadata(meta), ['pdb_00001aw1', 'pdb_00003y62'])
+        with open(seqfile) as f:
+            self.assertEqual(f.read(), new)
+
     def test_download_from_url(self):
         src = pathlib.Path(self.write('remote/file.cif', 'data_TEST\n'))
         target = os.path.join(self.tmp, 'local.cif')
