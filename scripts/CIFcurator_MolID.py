@@ -60,7 +60,7 @@ from CIFcurator import cifcuratormolidcifutils as molidutils
 parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
                                  epilog=__doc__.split('\n\n', 1)[1],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument('source_dir', help='Directory with the input CIF files (for example, the output of Step 2)')
+parser.add_argument('source_dir', help='Directory with the input CIF files (for example, the output of Step 1, CIFcurator_Download.py)')
 parser.add_argument('target_dir', help='Directory where the new CIF files are saved')
 args = parser.parse_args()
 source_dir = args.source_dir

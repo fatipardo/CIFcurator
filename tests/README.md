@@ -13,8 +13,13 @@ to be installed. They do need its dependencies (biopython, numpy, ...).
 
 | File | What | Needs |
 | --- | --- | --- |
-| `test_units.py` | Pure functions: residue-name conversion, gap percentages, alignment scoring, seqres search, CIF cleaning (including the OCT2026 path fix), the CIF writers of Steps 3-5, project directories | nothing (offline, ~1 s) |
-| `test_pipeline.py` | The full workflow, Steps 1 -> 5, on live PDB data | network, `muscle` (v5) on `PATH` |
+| `test_units.py` | Pure functions: residue-name conversion, gap percentages, alignment scoring, seqres search, CIF cleaning (including the OCT2026 path fix), the CIF writers of Steps 3-5, project directories, the options of `CIFcurator_Download.py` (downloads mocked) | nothing (offline, a few s) |
+| `test_pipeline.py` | The full workflow, Steps 1 -> 5, on live PDB data, and `CIFcurator_Download.py` | network, `muscle` (v5) on `PATH` |
+
+Steps 1 and 2 of the pipeline test are the two parts of Step 1 (download, then clean), which users run with
+`CIFcurator_Download.py`. They call the library functions of the script, so that only the five entries below are downloaded.
+`TestDownloadScript` runs the script itself, on "subtilisin carlsberg" (about 30 entries) and one computed structure model:
+it checks that four long-established entries and the model are downloaded, and that every file is cleaned.
 
 **Step 1** searches `pdb_seqres.fasta` (wwPDB beta archive, extended PDB IDs such as `pdb_00001aw1`) for "triosephosphate isomerase", as in the tutorial.
 The number of hits grows as the PDB grows, so the test only checks that five

@@ -10,6 +10,7 @@ import io
 import json
 import os
 import pathlib
+import runpy
 import shutil
 import subprocess
 import sys
@@ -759,6 +760,91 @@ class TestStandardSequencesFile(TempDirTestCase):
                             cwd=os.path.join(self.tmp, 'cwd2'), log_path=os.path.join(self.tmp, 'log2'))
         with open(path) as f:
             self.assertEqual(json.load(f), {'A': 'MAGWKS', 'B': 'SKWGA'})
+
+
+class TestDownloadScript(TempDirTestCase):
+    """OCT2026: Step 1 script, CIFcurator_Download.py (download from a keyword, then clean). Downloads are mocked."""
+    SCRIPT = os.path.join(_support.SCRIPTS_DIR, 'CIFcurator_Download.py')
+
+    def setUp(self):
+        super().setUp()
+        self.projdir = os.path.join(self.tmp, 'proj')
+        self.seqfile = self.write('seqres.txt', TestRetrieveSequencesMatching.SEQRES)
+
+    def run_subprocess(self, args):
+        cmd, env = _support.script_command('CIFcurator_Download.py', args)
+        return subprocess.run(cmd, cwd=self.tmp, env=env, capture_output=True, text=True, timeout=60)
+
+    def run_in_process(self, args):
+        """Run the script in this process, with every download mocked. Returns the mocks."""
+        def fake_assemblies(pdbid, download_dir=None):
+            # One assembly per entry, as the wwPDB beta archive serves it
+            with open(os.path.join(download_dir, pdbid + '+01.cif'), 'w') as f:
+                f.write(ASSEMBLY_FILE)
+
+        def fake_seqfile(seqfile=None):
+            shutil.copy(self.seqfile, seqfile)
+            return seqfile
+
+        with mock.patch.object(pdbutils, 'download_assemblies_from_id', side_effect=fake_assemblies) as dl, \
+                mock.patch.object(pdbutils, 'retrieve_seqfile', side_effect=fake_seqfile) as seq, \
+                mock.patch.object(pdbutils, 'download_csm_from_keyword', return_value=[]) as csm, \
+                mock.patch.object(sys, 'argv', [self.SCRIPT] + args), quiet():
+            runpy.run_path(self.SCRIPT, run_name='__main__')
+        return dl, seq, csm
+
+    def test_help(self):
+        result = self.run_subprocess(['-h'])
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('--csm {True,False}', result.stdout)
+        self.assertIn('keyword', result.stdout)
+
+    def test_csm_must_be_true_or_false(self):
+        result = self.run_subprocess(['TEST PROTEIN', '--projdir', self.projdir, '--csm', 'yes'])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('expected True or False', result.stderr)
+
+    def test_keyword_without_hits_stops_before_downloading(self):
+        result = self.run_subprocess(['NO SUCH PROTEIN', '--projdir', self.projdir, '--seqfile', self.seqfile])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Nothing to download', result.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.projdir, 'raw_bank')))
+
+    def test_downloads_and_cleans_matching_entries(self):
+        # The keyword finds 1aaa, 2bbb and 3ccc; their sequences find no other chain (4ddd, 5eee, 6fff)
+        dl, seq, csm = self.run_in_process(['TEST PROTEIN', '--projdir', self.projdir, '--seqfile', self.seqfile])
+        self.assertEqual([c.args[0] for c in dl.call_args_list], ['pdb_00001aaa', 'pdb_00002bbb', 'pdb_00003ccc'])
+        seq.assert_not_called()  # the sequence file exists, so it is reused
+        csm.assert_not_called()  # --csm is False by default
+        names = ['pdb_00001aaa+01.cif', 'pdb_00002bbb+01.cif', 'pdb_00003ccc+01.cif']
+        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.projdir, 'raw_bank')) if f.endswith('.cif')), names)
+        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.projdir, 'clean_bank')) if f.endswith('.cif')), names)
+        for name in names:
+            with self.subTest(name=name):
+                self.assertEqual(_support.mmcif_problems(os.path.join(self.projdir, 'clean_bank', name)), [])
+
+    def test_keyword_with_several_words_is_one_argument(self):
+        # 'TAGGED TEST PROTEIN' only matches 2bbb (the other entries are only 'TEST PROTEIN'), ignoring case
+        dl, _, _ = self.run_in_process(['tagged test protein', '--projdir', self.projdir, '--seqfile', self.seqfile])
+        self.assertEqual([c.args[0] for c in dl.call_args_list], ['pdb_00002bbb'])
+
+    def test_csm_true_downloads_models(self):
+        _, _, csm = self.run_in_process(['TEST PROTEIN', '--projdir', self.projdir, '--seqfile', self.seqfile,
+                                         '--csm', 'True', '--max-models', '3'])
+        csm.assert_called_once_with('TEST PROTEIN', projdir=self.projdir, max_models=3)
+        _, _, csm = self.run_in_process(['TEST PROTEIN', '--projdir', self.projdir, '--seqfile', self.seqfile,
+                                         '--csm', 'true'])
+        csm.assert_called_once_with('TEST PROTEIN', projdir=self.projdir, max_models=None)
+
+    def test_sequence_file_downloaded_when_missing_or_update(self):
+        _, seq, _ = self.run_in_process(['TEST PROTEIN', '--projdir', self.projdir])
+        seq.assert_called_once()
+        self.assertTrue(os.path.isfile(os.path.join(self.projdir, 'seqres.txt')))
+        _, seq, _ = self.run_in_process(['TEST PROTEIN', '--projdir', self.projdir])
+        seq.assert_not_called()
+        _, seq, _ = self.run_in_process(['TEST PROTEIN', '--projdir', self.projdir, '--update'])
+        seq.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()
