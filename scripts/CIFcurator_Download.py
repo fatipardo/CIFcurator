@@ -28,9 +28,11 @@ The output of this script, {projdir}/clean_bank, is the input of Step 3 (CIFcura
 Examples (use quotes when the keyword has more than one word):
   CIFcurator_Download.py "triosephosphate isomerase" --projdir ./TIM
   CIFcurator_Download.py "triosephosphate isomerase" --projdir ./TIM --csm True --max-models 10
+  CIFcurator_Download.py "triose[- ]?phosphate isomerase" --projdir ./TIM --regex
+  CIFcurator_Download.py "h(a)?emoglobin" --projdir ./HB --regex --csm True --csm-keyword "hemoglobin"
 """
 
-import argparse, os
+import argparse, os, re
 from CIFcurator import cifcurator_io, pdbutils, cleanutils
 
 
@@ -56,11 +58,25 @@ parser.add_argument('--csm', type=str_to_bool, default=False, metavar='{True,Fal
                     help='Also download computed structure models (CSMs) from AlphaFold DB (default: False)')
 parser.add_argument('--max-models', type=int, default=None, metavar='N',
                     help='With --csm True, download at most N CSMs, best matches first (default: all of them)')
+parser.add_argument('--csm-keyword', default=None, metavar='TEXT',
+                    help='With --csm True, plain text for the CSM search, instead of the keyword '
+                         '(required with --regex)')
 parser.add_argument('--seqfile', default=None,
                     help='File with the sequences of all the structures in the PDB (default: {projdir}/seqres.txt)')
 parser.add_argument('--update', action='store_true',
                     help='Download the sequence file again, even if it already exists')
+parser.add_argument('--regex', action='store_true',
+                    help='Advanced: the keyword is a Python regular expression, not plain text '
+                         '(with --csm True, also give --csm-keyword)')
 args = parser.parse_args()
+if args.regex:
+    if args.csm and args.csm_keyword is None:
+        parser.error('--regex with --csm True needs --csm-keyword: the CSM search of RCSB PDB does not '
+                     'understand regular expressions, so give it plain text, e.g. --csm-keyword "hemoglobin"')
+    try:
+        re.compile(args.keyword)
+    except re.error as err:
+        parser.error('the keyword {0!r} is not a valid regular expression: {1}'.format(args.keyword, err))
 keyword = args.keyword
 projdir = args.projdir
 seqfile = args.seqfile if args.seqfile is not None else projdir+'/seqres.txt'
@@ -78,7 +94,8 @@ if update:
 else:
     print('Using the PDB sequences in {0} (use --update to download them again)'.format(seqfile))
 
-ref_sequences, ref_metadata = pdbutils.retrieve_sequence_from_PDB(keyword, mode='metadata', update=update, seqfile=seqfile)
+ref_sequences, ref_metadata = pdbutils.retrieve_sequence_from_PDB(keyword, mode='metadata', update=update, seqfile=seqfile,
+                                                                  regex=args.regex)
 print('{0} sequences were identified as potential hits!'.format(len(ref_sequences)))
 if len(ref_sequences) == 0 and not args.csm:
     parser.exit(1, 'No sequence in the PDB matches the keyword {0!r}. Nothing to download.\n'.format(keyword))
@@ -94,9 +111,12 @@ print('Downloading the biological assemblies of {0} PDB entries to {1}/raw_bank 
 pdbutils.download_pdb_from_metadata(metadata, projdir=projdir)
 
 if args.csm:
-    pdbutils.download_csm_from_keyword(keyword, projdir=projdir, max_models=args.max_models)
-elif args.max_models is not None:
-    print('--max-models is ignored, because --csm is False')
+    csm_keyword = args.csm_keyword if args.csm_keyword is not None else keyword
+    pdbutils.download_csm_from_keyword(csm_keyword, projdir=projdir, max_models=args.max_models)
+else:
+    for option, value in (('--max-models', args.max_models), ('--csm-keyword', args.csm_keyword)):
+        if value is not None:
+            print('{0} is ignored, because --csm is False'.format(option))
 
 
 ###############################################
