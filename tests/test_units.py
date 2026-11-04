@@ -221,6 +221,97 @@ class TestScoreSequenceAlignment(unittest.TestCase):
         self.assertEqual(alignmentutils.ScoreSequenceAlignment('A-', 'A-'), 1.0)
 
 
+
+class TestPairwiseAlignment(TempDirTestCase):
+    """NOV2026: Step 4 pairwise alignments with Biopython instead of a MUSCLE run (and a 1 s wait) per pair."""
+    # Chain A of 1aw1 and of 2y62 (TIM, two organisms)
+    TIM_1AW1 = ('MRHPVVMGNWKLNGSKEMVVDLLNGLNAELEGVTGVDVAVAPPALFVDLAERTLTEAGSAIILGAQNTDLNNSGAFTGDMSPAMLKEFGATHI'
+                'IIGHSERREYHAESDEFVAKKFAFLKENGLTPVLCIGESDAQNEAGETMAVCARQLDAVINTQGVEALEGAIIAYEPIWAIGTGKAATAEDAQRI'
+                'HAQIRAHIAEKSEAVAKNVVIQYGGSVKPENAAAYFAQPDIDGALVGGAALDAKSFAAIAKAAAEAKA')
+    TIM_2Y62 = ('MSAKPQPIAAANWKCNGTTASIEKLVQVFNEHTISHDVQCVVAPTFVHIPLVQAKLRNPKYVISAQNAIAKSGAFTGEVSMPILKDIGVHWVIL'
+                'GHSERRTYYGETDEIVAQKVSEACKQGFMVIACIGETLQQREANQTAKVVLSQTSAIAAKLTKDAWNQVVLAYEPVWAIGTGKVATPEQAQEVHL'
+                'LLRKWVSENIGTDVAAKLRILYGGSVNAANAATLYAKPDINGFLVGGASLKPEFRDIIDATR')
+
+    def setUp(self):
+        super().setUp()
+        alignmentutils.PairwiseIdentity.cache_clear()
+        self.addCleanup(alignmentutils.PairwiseIdentity.cache_clear)
+
+    def assert_aligned(self, aligned, seqs):
+        self.assertEqual(len(aligned[0]), len(aligned[1]))
+        self.assertEqual([a.replace('-', '') for a in aligned], list(seqs))
+
+    def test_scores_close_to_muscle(self):
+        # MUSCLE 5.3 scores, from the old AlignSequences: 1.000, 0.381, 0.250, 0.961
+        a = self.TIM_1AW1
+        cases = [(a, 1.0), (self.TIM_2Y62, 0.381), (self.TIM_2Y62[40:200], 0.250), (a[:100] + 'WWWWW' + a[110:], 0.961)]
+        for other, muscle in cases:
+            with self.subTest(length=len(other)):
+                aligned = alignmentutils.AlignPair(a, other)
+                self.assert_aligned(aligned, (a, other))
+                self.assertAlmostEqual(alignmentutils.PairwiseIdentity(a, other), muscle, delta=0.01)
+
+    def test_mutant_above_and_homolog_below_threshold(self):
+        # Step 4 keeps a chain whose ID matches the standard when the score is at least 0.85
+        a = self.TIM_1AW1
+        self.assertGreaterEqual(alignmentutils.PairwiseIdentity(a, a[:120] + 'G' + a[121:]), 0.85)
+        self.assertLess(alignmentutils.PairwiseIdentity(a, self.TIM_2Y62), 0.85)
+
+    def test_unknown_letters_and_nucleic_acids(self):
+        # X (unknown residue), U (from modified nucleotides) and O are given back as they came
+        for seqs in [('MKVXAAG', 'MKVLAAG'), ('MKVUAAGO', 'MKVLAAG'), ('ACGUACGU', 'ACGUCGU'), ('ACGU', 'MKVL')]:
+            with self.subTest(seqs=seqs):
+                self.assert_aligned(alignmentutils.AlignPair(*seqs), seqs)
+        self.assertEqual(alignmentutils.PairwiseIdentity('ACGUACGU', 'ACGUACGU'), 1.0)
+
+    def test_empty_sequence(self):
+        self.assertEqual(alignmentutils.AlignPair('', 'MKV'), ['---', 'MKV'])
+        self.assertEqual(alignmentutils.PairwiseIdentity('MKV', ''), 0.0)
+
+    def test_scores_are_remembered(self):
+        for _ in range(3):
+            alignmentutils.PairwiseIdentity(self.TIM_1AW1, self.TIM_2Y62)
+        info = alignmentutils.PairwiseIdentity.cache_info()
+        self.assertEqual((info.misses, info.hits), (1, 2))
+
+    def test_two_sequences_do_not_start_muscle(self):
+        with mock.patch.object(alignmentutils.subprocess, 'run') as run:
+            aligned = alignmentutils.AlignSequences(['MKVLAAG', 'MKLAAG'])
+        run.assert_not_called()
+        self.assert_aligned(aligned, ('MKVLAAG', 'MKLAAG'))
+
+    def test_muscle_is_waited_for(self):
+        # More than two sequences still go to MUSCLE; the result is read once it is done, in input order
+        def fake_muscle(cmd, check):
+            fafile, afafile = cmd[2], cmd[4]
+            with open(fafile) as f:
+                records = f.read().split('>')[1:]
+            with open(afafile, 'w') as f:
+                for record in reversed(records):  # as if MUSCLE had reordered them
+                    header, seq = record.split('\n', 1)
+                    f.write('>' + header + '\n' + seq.strip().upper() + '\n')
+        cwd = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, cwd)
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=fake_muscle):
+            aligned = alignmentutils.AlignSequences(['mkv', 'mkl', 'mka'])
+        self.assertEqual(aligned, ['MKV', 'MKL', 'MKA'])
+        self.assertEqual(os.listdir(self.tmp), [])  # no Seq.fa or Seq.afa left in the current directory
+
+    def test_missing_muscle_is_an_error(self):
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=FileNotFoundError('muscle')):
+            with self.assertRaisesRegex(RuntimeError, 'muscle was not found'):
+                alignmentutils.run_muscle(['-version'])
+
+    def test_failed_msa_leaves_no_alignment_to_reuse(self):
+        # Step 5 reuses an existing <chain>.fasta, so a failed MUSCLE run must not leave one behind
+        name = os.path.join(self.tmp, 'A')
+        failed = subprocess.CalledProcessError(1, ['muscle'])
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=failed):
+            with self.assertRaises(subprocess.CalledProcessError):
+                alignmentutils.AlignSequenceResNum(['MKV', 'MKL'], name, ['s1', 's2'])
+        self.assertFalse(os.path.exists(name + '.fasta'))
+
 class TestPdbUtils(TempDirTestCase):
     # As in the wwPDB beta archive pdb_seqres.fasta.gz (extended PDB IDs)
     SEQRES = (">pdb_0000101m_A mol:protein length:154  MYOGLOBIN\n"
@@ -484,14 +575,20 @@ class TestCsmDownload(TempDirTestCase):
         with mock.patch.object(pdbutils, 'read_json_from_url', side_effect=read):
             self.assertIsNone(pdbutils.csm_cif_url('AF_AFP99999F1'))
 
-    def test_download_csm_from_keyword_saves_csmid_plus_01(self):
+    def test_csm_file_id_drops_model_version(self):
+        self.assertEqual(pdbutils.csm_file_id('https://alphafold.ebi.ac.uk/files/AF-P60174-F1-model_v6.cif'),
+                         'AF-P60174-F1')
+        self.assertEqual(pdbutils.csm_file_id('https://alphafold.ebi.ac.uk/files/AF-A0A158Q4N9-F1-model_v12.cif'),
+                         'AF-A0A158Q4N9-F1')
+
+    def test_download_csm_from_keyword_saves_afid_plus_01(self):
         urls = {'AF_AFP60174F1': 'https://alphafold.ebi.ac.uk/files/AF-P60174-F1-model_v6.cif', 'MA_MABAKCEPC': None}
         with mock.patch.object(pdbutils, 'search_csm_from_keyword', return_value=list(urls)), \
                 mock.patch.object(pdbutils, 'csm_cif_url', side_effect=urls.get), \
                 mock.patch.object(pdbutils, 'download_from_url') as dl, quiet() as out:
             downloaded = pdbutils.download_csm_from_keyword('triosephosphate isomerase', projdir=self.tmp)
-        self.assertEqual(downloaded, ['AF_AFP60174F1'])
-        dl.assert_called_once_with(urls['AF_AFP60174F1'], self.tmp + '/raw_bank/AF_AFP60174F1+01.cif')
+        self.assertEqual(downloaded, ['AF-P60174-F1'])
+        dl.assert_called_once_with(urls['AF_AFP60174F1'], self.tmp + '/raw_bank/AF-P60174-F1+01.cif')
         self.assertIn('ONE PROTEIN CHAIN ONLY', out.getvalue())
         self.assertIn('Skipping MA_MABAKCEPC', out.getvalue())
 
@@ -688,19 +785,19 @@ class TestCleanAssemblyFile(TempDirTestCase):
 
 
 class TestCleanCsmFile(TempDirTestCase):
-    """OCT2026: Step 2 on a computed structure model (CSMID+01.cif), which has no experimental method."""
+    """OCT2026: Step 2 on a computed structure model (AFID+01.cif), which has no experimental method."""
     def clean_bank(self):
-        self.write('raw_bank/AF_AFP99999F1+01.cif', CSM_FILE)
+        self.write('raw_bank/AF-P99999-F1+01.cif', CSM_FILE)
         os.makedirs(os.path.join(self.tmp, 'clean_bank'))
         with quiet():
             cleanutils.process(projdir=self.tmp, step='clean', source='raw_bank', target='clean_bank')
-        return os.path.join(self.tmp, 'clean_bank', 'AF_AFP99999F1+01.cif')
+        return os.path.join(self.tmp, 'clean_bank', 'AF-P99999-F1+01.cif')
 
     def test_no_exptl_is_written(self):
         path = self.clean_bank()
         with open(path) as f:
             text = f.read()
-        self.assertIn("_entry.id   'AF_AFP99999F1'", text)
+        self.assertIn("_entry.id   'AF-P99999-F1'", text)
         self.assertNotIn('_exptl', text)
 
     def test_consistent_with_mmcif_dictionary(self):

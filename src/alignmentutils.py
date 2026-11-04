@@ -1,8 +1,12 @@
 from __future__ import print_function
 from __future__ import division
 import os
-import time
+import subprocess
+import tempfile
+from functools import lru_cache
 from Bio import SeqIO
+from Bio import Align
+from Bio.Align import substitution_matrices
 import numpy as np
 
 # AA Map from 3 letter amino acid id to 1 letter id
@@ -80,10 +84,121 @@ def ResnConvert(resn):
     return ans
 # END AA Map from 3 letter amino acid id to 1 letter id
 
+# NOV2026: pairwise alignments (Step 4) are done by Biopython, in this process, instead of starting MUSCLE
+# for every pair of chains: about 1 ms instead of about 1 s per alignment, with the same identity scores
+# (within 0.005 on TIM chains). Global alignment with BLOSUM62 and the gap scores of EMBOSS needle;
+# nucleic acid chains (only ACGTUN, see ResnConvert) are scored with matches and mismatches.
+PROTEIN_MATRIX = substitution_matrices.load('BLOSUM62')
+NUCLEIC_LETTERS = set('ACGTUN')
+
+def make_pairwise_aligner(nucleic=False):
+    """
+    NOV2026: Creates the Biopython aligner used for pairwise alignments.
+
+    Parameters:
+    -----------
+    nucleic : bool, optional
+        If True, the aligner is for nucleic acid sequences (match 5, mismatch -4, as EMBOSS needle with
+        EDNAFULL). If False (default), for proteins (BLOSUM62).
+
+    Returns:
+    --------
+    aligner : Bio.Align.PairwiseAligner
+        A global aligner with gap open score -10 and gap extension score -0.5.
+    """
+    aligner = Align.PairwiseAligner()
+    aligner.mode = 'global'
+    if nucleic:
+        aligner.match_score = 5
+        aligner.mismatch_score = -4
+    else:
+        aligner.substitution_matrix = PROTEIN_MATRIX
+    aligner.open_gap_score = -10
+    aligner.extend_gap_score = -0.5
+    return aligner
+
+PROTEIN_ALIGNER = make_pairwise_aligner()
+NUCLEIC_ALIGNER = make_pairwise_aligner(nucleic=True)
+
+def AlignPair(seq1, seq2):
+    """
+    NOV2026: Aligns two sequences with Biopython (see make_pairwise_aligner) and returns them with gaps ('-').
+    Letters that BLOSUM62 does not know are aligned as X, and given back unchanged.
+
+    Parameters:
+    -----------
+    seq1 : str
+        The first sequence (one-letter codes, as from ResnConvert).
+    seq2 : str
+        The second sequence.
+
+    Returns:
+    --------
+    aligned_seq : list of str
+        The two sequences, aligned: both have the same length.
+    """
+    if not seq1 or not seq2:
+        length = max(len(seq1), len(seq2))
+        return [seq1.ljust(length, '-'), seq2.ljust(length, '-')]
+    if set(seq1) <= NUCLEIC_LETTERS and set(seq2) <= NUCLEIC_LETTERS:
+        aligner, known = NUCLEIC_ALIGNER, NUCLEIC_LETTERS
+    else:
+        aligner, known = PROTEIN_ALIGNER, set(PROTEIN_MATRIX.alphabet)
+    masked = [''.join(c if c in known else 'X' for c in seq) for seq in (seq1, seq2)]
+    alignment = aligner.align(masked[0], masked[1])[0]
+    aligned_seq = []
+    for seq, row in zip((seq1, seq2), (alignment[0], alignment[1])):
+        letters = iter(seq)
+        aligned_seq.append(''.join('-' if c == '-' else next(letters) for c in row))
+    return aligned_seq
+
+@lru_cache(maxsize=None)
+def PairwiseIdentity(seq1, seq2):
+    """
+    NOV2026: Aligns two sequences (AlignPair) and returns their identity score (ScoreSequenceAlignment).
+    Scores are remembered, so the many identical chains of an ensemble are only aligned once.
+
+    Parameters:
+    -----------
+    seq1 : str
+        The reference sequence, e.g. a standard sequence.
+    seq2 : str
+        The sequence being compared, e.g. a chain of a structure.
+
+    Returns:
+    --------
+    score : float
+        The fraction of the alignment columns where both sequences have the same letter.
+    """
+    aligned_seq = AlignPair(seq1, seq2)
+    return ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+
+def run_muscle(args):
+    """
+    NOV2026: Runs MUSCLE and waits until it is done (before: os.popen and checks every second, or every
+    10 seconds, for the output file). Raises an error if MUSCLE fails, instead of waiting forever.
+
+    Parameters:
+    -----------
+    args : list of str
+        The arguments of muscle, e.g. ['-align', 'in.fa', '-output', 'out.afa'].
+
+    Returns:
+    --------
+    None
+    """
+    try:
+        subprocess.run(['muscle'] + list(args), check=True)
+    except FileNotFoundError:
+        raise RuntimeError('muscle was not found: install it (e.g. conda install -c bioconda muscle) '
+                           'and make sure it is on the PATH')
+
 def AlignSequences(sequence_vec):
     """
     Takes a list of sequence strings and performs a MUSCLE alignment,
     outputting a vector of aligned sequence strings.
+    NOV2026: two sequences are aligned with Biopython (AlignPair), more than two with MUSCLE,
+    in a temporary directory (before: Seq.fa and Seq.afa in the current directory).
 
     Parameters:
     -----------
@@ -95,43 +210,29 @@ def AlignSequences(sequence_vec):
     aligned_seq : list of str
         A list containing the aligned sequences
     """
+    if len(sequence_vec) == 2:
+        return AlignPair(sequence_vec[0], sequence_vec[1])
 
-    with open("Seq.fa", 'w') as newfafile:
-        for seq in sequence_vec:
-            newfafile.write("> Seq" + "\n")
-            newfafile.write(seq + "\n")
+    with tempfile.TemporaryDirectory(prefix='cifcurator_') as tmpdir:
+        fafile = os.path.join(tmpdir, 'Seq.fa')
+        afafile = os.path.join(tmpdir, 'Seq.afa')
+        with open(fafile, 'w') as newfafile:
+            for i, seq in enumerate(sequence_vec):
+                newfafile.write("> Seq" + str(i) + "\n") # NOV2026: numbered, MUSCLE reorders the sequences
+                newfafile.write(seq + "\n")
 
-    process=os.popen('muscle -align Seq.fa -output Seq.afa')
+        run_muscle(['-align', fafile, '-output', afafile])
 
-    process
-
-    time.sleep(1) #FAPA
-
-    #FAPA START
-    while not os.path.exists("Seq.afa"):
-        time.sleep(1) #FAPA, WAITING LESS TIME
-        print("waiting...")
-
-    while not os.path.getsize("Seq.afa") >= os.path.getsize("Seq.fa"):
-        time.sleep(1) #FAPA, WAITING LESS TIME
-        print("waiting even more...")
-
-    #FAPA ENDS
-
-    aligned_seq = []
-    with open("Seq.afa") as seqfile:
-        seq = ""
-        for line in seqfile:
-            if (line[0] == ">"):
-                if (seq != ""):
-                    aligned_seq.append(seq)
-                    seq = ""
-            else:
-                seq += line.strip()
-        aligned_seq.append(seq)
-
-    process.close()
-    return (aligned_seq)
+        aligned_seq_map = {}
+        with open(afafile) as seqfile:
+            key = None
+            for line in seqfile:
+                if (line[0] == ">"):
+                    key = int(line[1:].strip()[3:])
+                    aligned_seq_map[key] = ""
+                else:
+                    aligned_seq_map[key] += line.strip()
+    return [aligned_seq_map[i] for i in range(len(sequence_vec))]
 
 def AlignSequenceResNum(sequence_vec, file_name, this_chainsseq_list_ids):
     """
@@ -168,21 +269,11 @@ def AlignSequenceResNum(sequence_vec, file_name, this_chainsseq_list_ids):
                 newfafile.write(seq + "\n")
                 i += 1
 
-        command = "muscle -super5 "+file_name+".fa -output "+file_name+".fasta" # FAPA 26AUG2025
-        process = os.popen(command)
-        process
-
-        #FAPA START
-        while not os.path.exists(file_name+".fasta"):
-            time.sleep(10)
-            print("waiting...")
-
-        while not os.path.getsize(file_name+".fasta") > 0:
-            time.sleep(10)
-            print("waiting even more...")
-
-        #FAPA ENDS
-        process.close()
+        # FAPA 26AUG2025: muscle -super5. NOV2026: waits for MUSCLE to finish, and writes to a temporary
+        # file renamed at the end, so an interrupted run never leaves a partial alignment to be reused
+        partial = file_name+".fasta.part"
+        run_muscle(['-super5', file_name+".fa", '-output', partial])
+        os.replace(partial, file_name+".fasta")
 
     else:
         print("Alignment already exists, so I will use that one!")

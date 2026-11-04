@@ -270,12 +270,30 @@ def csm_cif_url(csmid):
             return model['cifUrl']
     return None
 
+def csm_file_id(url):
+    """
+    NOV2026: Returns the AlphaFold DB ID of a model from the URL of its mmCIF file, without the
+    "-model_vN.cif" ending. It names the file in raw_bank, and it is also the _entry.id of the model.
+
+    Parameters:
+    -----------
+    url : str
+        The URL of the mmCIF file, e.g. 'https://alphafold.ebi.ac.uk/files/AF-P60174-F1-model_v6.cif'.
+
+    Returns:
+    --------
+    afid : str
+        The AlphaFold DB ID, e.g. 'AF-P60174-F1'.
+    """
+    return re.sub(r'-model_v\d+\.cif$', '', url.rsplit('/', 1)[-1])
+
 def download_csm_from_keyword(keyword, projdir=None, max_models=None):
     """
     OCT2026: Optional step. Finds computed structure models (CSMs) in RCSB PDB with a full text search
     (search_csm_from_keyword) and downloads their mmCIF files to the raw_bank of the project directory,
-    next to the experimental structures. Each model is saved as CSMID+01.cif, where CSMID is the RCSB ID
-    (AF_AFP60174F1+01.cif), like the first biological assembly of an experimental structure.
+    next to the experimental structures. NOV2026: each model is saved as AFID+01.cif, where AFID is the
+    AlphaFold DB ID of the model, read from its URL (AF-P60174-F1+01.cif from AF-P60174-F1-model_v6.cif),
+    like the first biological assembly of an experimental structure. The RCSB ID (AF_AFP60174F1) is not used.
     Only AlphaFold DB models are downloaded; other models are skipped with a message.
     CSMs contain one protein chain only (see CSM_WARNING), which is printed first.
 
@@ -290,8 +308,8 @@ def download_csm_from_keyword(keyword, projdir=None, max_models=None):
 
     Returns:
     --------
-    csmids : list of str
-        The RCSB IDs of the CSMs that were downloaded.
+    afids : list of str
+        NOV2026: the AlphaFold DB IDs of the models that were downloaded, e.g. 'AF-P60174-F1'.
     """
     if projdir is None:
         print("Please provide a project directory ...")
@@ -308,8 +326,9 @@ def download_csm_from_keyword(keyword, projdir=None, max_models=None):
         if url is None:
             print('Skipping {0}: no mmCIF file from AlphaFold DB'.format(csmid))
             continue
-        download_from_url(url, download_dir+'/{0}+01.cif'.format(csmid))
-        downloaded.append(csmid)
+        afid = csm_file_id(url) #NOV2026
+        download_from_url(url, download_dir+'/{0}+01.cif'.format(afid))
+        downloaded.append(afid)
     print('{0} computed structure models were downloaded to {1}'.format(len(downloaded), download_dir))
     return downloaded
 
