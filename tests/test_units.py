@@ -833,7 +833,7 @@ class TestStepsKeepFilesConsistent(TempDirTestCase):
         self.assertEqual(scheme, ['X', 'X', 'X', 'Ab', 'Ab', 'Ab'])
         self.assertEqual(_support.mmcif_problems(self.out), [])
 
-    def test_step3_concatenation_offsets_scheme_numbers(self):
+    def test_step3_concatenation_continues_numbering(self):
         # Two entities concatenated into one chain C. mmCIF allows one entity per chain, so struct_asym keeps
         # a single row (the first entity's) and the file is not fully consistent: a known limitation.
         with quiet():
@@ -844,10 +844,11 @@ class TestStepsKeepFilesConsistent(TempDirTestCase):
         auth, struct_asym, strand, pdb_num = _support.cif_columns(
             self.out, '_atom_site.auth_seq_id', '_struct_asym.id', '_pdbx_poly_seq_scheme.pdb_strand_id',
             '_pdbx_poly_seq_scheme.pdb_seq_num')
-        self.assertEqual(auth, ['1', '2', '50001', '50002', '50002', '50003'])
+        # NOV2026: B continues after the last residue of A, the unobserved SER 3
+        self.assertEqual(auth, ['1', '2', '4', '5', '5', '6'])
         self.assertEqual(struct_asym, ['C'])
         self.assertEqual(strand, ['C'] * 6)
-        self.assertEqual(pdb_num, ['1', '2', '3', '50001', '50002', '50003'])
+        self.assertEqual(pdb_num, ['1', '2', '3', '4', '5', '6'])
         self.assertEqual(_support.mmcif_problems(self.out),
                          ['_pdbx_poly_seq_scheme chain C entity 2 not in _struct_asym'] * 3 +
                          ['chain C: atoms in entity 2, _struct_asym says 1'] * 3)
