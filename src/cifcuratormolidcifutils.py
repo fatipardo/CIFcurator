@@ -1649,6 +1649,66 @@ def accept_newchain(masterlist, found_map):
 # FINALIZE STEP #
 #################
 
+def concatenation_offsets(myfile, molID_class):
+    """
+    NOV2026: Computes the residue number offset of each concatenated chain.
+
+    The first chain of a concatenation keeps its numbering. Each following chain is shifted so that its
+    first residue comes right after the last residue of the previous one (if the first chain ends in 90, the
+    second starts in 91). Residue numbers are read from _atom_site.auth_seq_id and from
+    _pdbx_poly_seq_scheme.pdb_seq_num and auth_seq_num, so unobserved residues are counted too.
+    Gaps and insertion codes inside a chain are kept.
+
+    Parameters:
+    -----------
+    myfile : file object
+        The open CIF file. It is read to the end and rewound.
+
+    molID_class : MolID
+        The MolID object of this file, with `chID_newchID_map` and `concat_order`.
+
+    Returns:
+    --------
+    offsets : dict
+        The number to add to the residue numbers of each concatenated (old) chain ID.
+    """
+    first_residue = {}
+    last_residue = {}
+
+    def add_residue(chID, number):
+        if chID in molID_class.concat_order and number.lstrip('-').isdigit():
+            number = int(number)
+            first_residue[chID] = min(first_residue.get(chID, number), number)
+            last_residue[chID] = max(last_residue.get(chID, number), number)
+
+    category = None
+    for line in myfile:
+        if line.startswith('_'):
+            category = line.split('.')[0]
+        elif line.startswith('#'):
+            category = None
+        line_split = line.split()
+        if (line[0:4] == "ATOM") or (line[0:6] == "HETATM"):
+            add_residue(line_split[6], line_split[15])
+        elif category == '_pdbx_poly_seq_scheme' and line_split != [] and not line.startswith(('_', 'loop_')):
+            add_residue(line_split[0], line_split[5])
+            add_residue(line_split[0], line_split[6])
+    myfile.seek(0)
+
+    offsets = {}
+    end_of_previous = {}  # new chain ID -> last residue number written so far
+    for chID in sorted(molID_class.concat_order, key=lambda chID: molID_class.concat_order[chID]):
+        newchID = molID_class.chID_newchID_map[chID]
+        if chID not in first_residue:  # no residues in this file
+            offsets[chID] = 0
+        elif newchID not in end_of_previous:  # first chain keeps its numbering
+            offsets[chID] = 0
+            end_of_previous[newchID] = last_residue[chID]
+        else:
+            offsets[chID] = end_of_previous[newchID] + 1 - first_residue[chID]
+            end_of_previous[newchID] = last_residue[chID] + offsets[chID]
+    return offsets
+
 def masterlist_to_pdb(filelist, masterlist, target_dir=None):
     """
     Updates CIF files with updated chain IDs based on a master list.
@@ -1680,6 +1740,8 @@ def masterlist_to_pdb(filelist, masterlist, target_dir=None):
             with open(newciffilename, 'w') as newciffile:
                 for molID_class in masterlist:
                     if (molID_class.file_name == myfile.name):
+                        # NOV2026: concatenated chains continue the numbering of the previous one (it replaces the 50000 offset)
+                        residue_offsets = concatenation_offsets(myfile, molID_class)
                         category = None # OCT2026
                         written_asym_ids = set() # OCT2026
                         for line in myfile:
@@ -1695,7 +1757,7 @@ def masterlist_to_pdb(filelist, masterlist, target_dir=None):
                                 if line_split[6] in molID_class.chID_newchID_map: # FAPA: CHANGING LINE_SPLIT[17] TO 6
                                     # Residues have to be renumbered due to concatenations
                                     if line_split[6] in molID_class.concat_order:
-                                        residue_offset = (molID_class.concat_order[line_split[6]] - 1) * 50000 # FAPA changed to 50000 from 1000
+                                        residue_offset = residue_offsets[line_split[6]]
                                         new_resinum = int(line_split[15]) + int(residue_offset)
                                         heresthenew_resinum = int(new_resinum)
                                         newline = line_split[0] + " " + line_split[1] + " " + line_split[2] + " " + line_split[3] + " " + line_split[4] + " " + line_split[5] + " " + molID_class.chID_newchID_map[line_split[6]] + " " + line_split[7] + " " + line_split[8] + " " + line_split[9] + " " + line_split[10] + " " + line_split[11] + " " + line_split[12] + " " + line_split[13] + " " + line_split[14] + " " + str(heresthenew_resinum) + " " + line_split[16] + " " + molID_class.chID_newchID_map[line_split[6]] + " " + line_split[18] + " " + line_split[19] + "\n"
@@ -1722,7 +1784,7 @@ def masterlist_to_pdb(filelist, masterlist, target_dir=None):
                                 line_split = line.split()
                                 if line_split[0] in molID_class.chID_newchID_map:
                                     if line_split[0] in molID_class.concat_order:
-                                        residue_offset = (molID_class.concat_order[line_split[0]] - 1) * 50000
+                                        residue_offset = residue_offsets[line_split[0]]
                                         for column in (5, 6):
                                             if line_split[column] not in ('?', '.'):
                                                 line_split[column] = str(int(line_split[column]) + int(residue_offset))
