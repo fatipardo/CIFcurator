@@ -137,6 +137,7 @@ def AlignPair(seq1, seq2):
     aligned_seq : list of str
         The two sequences, aligned: both have the same length.
     """
+    seq1, seq2 = seq1.upper(), seq2.upper()
     if not seq1 or not seq2:
         length = max(len(seq1), len(seq2))
         return [seq1.ljust(length, '-'), seq2.ljust(length, '-')]
