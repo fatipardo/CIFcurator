@@ -15,8 +15,8 @@ Download structural ensemble from RCSB PDB
   - Downloads the biological assemblies of those structures to {projdir}/raw_bank, one file
     per assembly, named PDBID+NN.cif (e.g. pdb_00001aw1+01.cif).
   - Optional (--csm True): downloads the computed structure models (CSMs) that match the
-    keyword, from AlphaFold DB, to {projdir}/raw_bank, named CSMID+01.cif
-    (e.g. AF_AFP60174F1+01.cif). A CSM contains ONE PROTEIN CHAIN ONLY: no nucleic acids,
+    keyword, from AlphaFold DB, to {projdir}/raw_bank, named AFID+01.cif
+    (e.g. AF-P60174-F1+01.cif). A CSM contains ONE PROTEIN CHAIN ONLY: no nucleic acids,
     ligands, waters or other copies of the protein.
 
 Clean structures: one CIF file per biological assembly

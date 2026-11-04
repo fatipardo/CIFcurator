@@ -7,7 +7,6 @@ import numpy as np
 import csv
 import os
 import copy
-import time
 from Bio.PDB.MMCIFParser import FastMMCIFParser
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -349,8 +348,7 @@ def align_to_std_seq_and_save_to_disk(Structure_Sequences, Standard_Sequences, s
 
                         structchid_score_map = {}
                         if std_chid in chid_seq_map:
-                            aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[std_chid]])
-                            score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                            score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[std_chid]) # NOV2026: Biopython, scores remembered
                             # If score is perfect, don't bother aligning all chains
                             if (score >= 0.85):
                                 structchid_score_map[std_chid] = score
@@ -362,15 +360,13 @@ def align_to_std_seq_and_save_to_disk(Structure_Sequences, Standard_Sequences, s
                             else:
                                 for struct_chid in chid_seq_map:
                                     if struct_chid not in ignore_chid:
-                                        aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[struct_chid]])
-                                        score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                                        score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[struct_chid]) # NOV2026: Biopython, scores remembered
                                         structchid_score_map[struct_chid] = score
                     # Chid of standard does not match any structure chid, so perform all alignments
                         else:
                             for struct_chid in chid_seq_map:
                                 if struct_chid not in ignore_chid:
-                                    aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[struct_chid]])
-                                    score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                                    score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[struct_chid]) # NOV2026: Biopython, scores remembered
                                     structchid_score_map[struct_chid] = score
 
 
@@ -445,13 +441,7 @@ def align_to_std_seq_and_save_to_disk(Structure_Sequences, Standard_Sequences, s
                 print("new_pdb_out")
                 print(new_pdb_out)
 
-                while not os.path.exists(new_pdb_out):
-                    time.sleep(1) #FAPA, WAITING LESS TIME
-                    print("waiting...")
-
-                while not os.path.getsize(new_pdb_out) > 0:
-                    time.sleep(1) #FAPA, WAITING LESS TIME
-                    print("waiting even more...")
+                # NOV2026: no need to wait for new_pdb_out, reassignedmaps_to_pdb has written it before returning
 
                 counter+=1
 
@@ -525,8 +515,7 @@ def align_to_standard_seq(Structure_Sequences, Standard_Sequences, structid_list
                     structchid_score_map = {}
                     # First, check to see if chid is already correctly assigned
                     if std_chid in chid_seq_map:
-                        aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[std_chid]])
-                        score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                        score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[std_chid]) # NOV2026: Biopython, scores remembered
                         # If score is perfect, don't bother aligning all chains
                         if (score == 1):
                             structchid_score_map[std_chid] = score
@@ -537,15 +526,13 @@ def align_to_standard_seq(Structure_Sequences, Standard_Sequences, structid_list
                         else:
                             for struct_chid in chid_seq_map:
                                 if struct_chid not in ignore_chid:
-                                    aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[struct_chid]])
-                                    score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                                    score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[struct_chid]) # NOV2026: Biopython, scores remembered
                                     structchid_score_map[struct_chid] = score
                     # Chid of standard does not match any structure chid, so perform all alignments
                     else:
                         for struct_chid in chid_seq_map:
                             if struct_chid not in ignore_chid:
-                                aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[struct_chid]])
-                                score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                                score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[struct_chid]) # NOV2026: Biopython, scores remembered
                                 structchid_score_map[struct_chid] = score
                     scorelist_list.append(list(reversed(sorted(structchid_score_map.values()))))
                     chidlist_list.append(list(reversed(sorted(structchid_score_map, key=structchid_score_map.get))))
@@ -644,8 +631,7 @@ def align_to_standard_seq(Structure_Sequences, Standard_Sequences, structid_list
                     structchid_score_map = {}
                     # First, check to see if chid is already correctly assigned
                     if std_chid in chid_seq_map:
-                        aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[std_chid]])
-                        score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                        score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[std_chid]) # NOV2026: Biopython, scores remembered
                         # If score is perfect, don't bother aligning all chains
                         if (score == 1):
                             structchid_score_map[std_chid] = score
@@ -656,15 +642,13 @@ def align_to_standard_seq(Structure_Sequences, Standard_Sequences, structid_list
                         else:
                             for struct_chid in chid_seq_map:
                                 if struct_chid not in ignore_chid:
-                                    aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[struct_chid]])
-                                    score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                                    score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[struct_chid]) # NOV2026: Biopython, scores remembered
                                     structchid_score_map[struct_chid] = score
                     # Chid of standard does not match any structure chid, so perform all alignments
                     else:
                         for struct_chid in chid_seq_map:
                             if struct_chid not in ignore_chid:
-                                aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[struct_chid]])
-                                score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                                score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[struct_chid]) # NOV2026: Biopython, scores remembered
                                 structchid_score_map[struct_chid] = score
                     scorelist_list.append(list(reversed(sorted(structchid_score_map.values()))))
                     chidlist_list.append(list(reversed(sorted(structchid_score_map, key=structchid_score_map.get))))
@@ -764,8 +748,7 @@ def align_to_standard_seq(Structure_Sequences, Standard_Sequences, structid_list
                         # First, check to see if chid is already correctly assigned
                         if std_chid in chid_seq_map:
                         #if std_chid not in ignore_chid: # FAPA
-                            aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[std_chid]])
-                            score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                            score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[std_chid]) # NOV2026: Biopython, scores remembered
                             # If score is perfect, don't bother aligning all chains
                             if (score >= 0.85): # No need to be so strict, think of possible cases when we would need identical score?
                                 structchid_score_map[std_chid] = score
@@ -777,15 +760,13 @@ def align_to_standard_seq(Structure_Sequences, Standard_Sequences, structid_list
                             else:
                                 for struct_chid in chid_seq_map:
                                     if struct_chid not in ignore_chid:
-                                        aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[struct_chid]])
-                                        score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                                        score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[struct_chid]) # NOV2026: Biopython, scores remembered
                                         structchid_score_map[struct_chid] = score
                     # Chid of standard does not match any structure chid, so perform all alignments
                         else:
                             for struct_chid in chid_seq_map:
                                 if struct_chid not in ignore_chid:
-                                    aligned_seq = AlignSequences([Standard_Sequences[std_chid], chid_seq_map[struct_chid]])
-                                    score = ScoreSequenceAlignment(aligned_seq[0], aligned_seq[1])
+                                    score = PairwiseIdentity(Standard_Sequences[std_chid], chid_seq_map[struct_chid]) # NOV2026: Biopython, scores remembered
                                     structchid_score_map[struct_chid] = score
 
 

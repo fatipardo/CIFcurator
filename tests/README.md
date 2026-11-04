@@ -63,14 +63,14 @@ a complete one.
 | `CIFCURATOR_TEST_CACHE=<dir>` | cache directory for `pdb_seqres.fasta` (default `tests/.cache`) |
 | `CIFCURATOR_SEQRES_MAX_AGE_DAYS=<n>` | re-download age (default 30; `0` forces a download) |
 | `CIFCURATOR_KEEP_TEST_OUTPUT=1` | keep the pipeline work directory and print its path |
-| `CIFCURATOR_SCRIPT_TIMEOUT=<s>` | per-script timeout (default 1800). If MUSCLE fails, Steps 4-5 would otherwise wait forever |
+| `CIFCURATOR_SCRIPT_TIMEOUT=<s>` | per-script timeout (default 1800). Stops a script that hangs, e.g. waiting for input |
 
 The pipeline work directory is created under `$TMPDIR` with a name that contains "cif".
 That is on purpose: it is the regression test for the `.cif` path bug fixed in OCT2026.
 
-Each interactive script runs in its own empty working directory, because the alignment
-code writes `Seq.fa`, `<chain>.fa` and `<chain>.fasta` to the current directory and reuses
-an existing `<chain>.fasta`.
+Each interactive script runs in its own empty working directory, because Step 5 writes
+`<chain>.fa` and `<chain>.fasta` to the current directory and reuses an existing
+`<chain>.fasta`. (NOV2026: Step 4 aligns with Biopython and writes no alignment files.)
 
 ## On Sherlock
 

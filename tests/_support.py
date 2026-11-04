@@ -105,14 +105,13 @@ def run_script(script, args, answers, cwd, log_path, timeout=None):
     """
     Run one of the interactive scripts in scripts/, feeding `answers` on stdin.
 
-    The script runs with `cwd` as its working directory: the alignment code writes
-    its MUSCLE input/output files (Seq.fa, <chain>.fa, <chain>.fasta) in the current
-    directory and reuses an existing <chain>.fasta, so every step needs its own
-    empty directory.
+    The script runs with `cwd` as its working directory: Step 5 writes its MUSCLE
+    input/output files (<chain>.fa, <chain>.fasta) in the current directory and
+    reuses an existing <chain>.fasta, so every step needs its own empty directory.
 
     Output (stdout+stderr) is written to `log_path`. Raises ScriptFailed with the end
-    of the log if the script exits non-zero or exceeds the timeout. (If MUSCLE fails,
-    AlignSequences_v4 waits forever for its output, so the timeout matters.)
+    of the log if the script exits non-zero or exceeds the timeout. (NOV2026: a failed
+    MUSCLE run is now an error, but a script waiting for input would still hang.)
     """
     timeout = SCRIPT_TIMEOUT if timeout is None else timeout
     os.makedirs(cwd, exist_ok=True)
@@ -179,8 +178,8 @@ def mmcif_problems(path):
                 '_entity.id', '_entity_poly.entity_id', '_entity_poly_seq.num', '_pdbx_poly_seq_scheme.asym_id',
                 '_citation.id', '_citation_author.citation_id', '_citation_author.ordinal',
                 '_audit_conform.dict_name', '_audit_conform.dict_version']
-    # OCT2026: computed structure models (RCSB IDs AF_... and MA_...) have no experimental method
-    if not (col('_entry.id') or [''])[0].upper().startswith(('AF_', 'MA_')):
+    # OCT2026: computed structure models (NOV2026: AlphaFold DB IDs AF-...) have no experimental method
+    if not (col('_entry.id') or [''])[0].upper().startswith(('AF-', 'AF_', 'MA_')):
         required.append('_exptl.entry_id')
     for key in required:
         if col(key) is None:

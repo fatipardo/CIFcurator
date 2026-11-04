@@ -25,7 +25,8 @@ ChainID Standardization Menu:
   QUIT   Exit without writing CIF files.
 
 The Standard Sequences are saved as StandardSequences.json in target_dir every time they
-change. MUSCLE alignment files are written in the current directory.
+change. The chains are aligned to the Standard Sequences with Biopython, in memory: this step
+does not need MUSCLE and writes no alignment files.
 
 The answers can also be given on standard input, for example:
   printf '2\n4\n4\n4\n' | CIFcurator_ChainStandardization.py standard_MolID_bank standard_ChainID_bank

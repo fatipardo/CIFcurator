@@ -454,7 +454,7 @@ class TestDownloadScript(unittest.TestCase):
         self.assertFalse(missing, 'not downloaded for {0!r}: {1}'.format(self.KEYWORD, sorted(missing)))
 
     def test_one_csm_downloaded(self):
-        self.assertEqual(len([n for n in self.names('raw_bank') if n.startswith('AF_')]), 1)
+        self.assertEqual(len([n for n in self.names('raw_bank') if n.startswith('AF-')]), 1)
 
     def test_seqfile_given_is_not_copied_to_projdir(self):
         self.assertFalse(os.path.exists(os.path.join(self.projdir, 'seqres.txt')))
