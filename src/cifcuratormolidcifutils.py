@@ -1656,7 +1656,8 @@ def concatenation_offsets(myfile, molID_class):
     The first chain of a concatenation keeps its numbering. Each following chain is shifted so that its
     first residue comes right after the last residue of the previous one (if the first chain ends in 90, the
     second starts in 91). Residue numbers are read from _atom_site.auth_seq_id and from
-    _pdbx_poly_seq_scheme.pdb_seq_num and auth_seq_num, so unobserved residues are counted too.
+    _pdbx_poly_seq_scheme.pdb_seq_num, so unobserved residues are counted too. auth_seq_num is not read:
+    it only lists observed residues, which are already in _atom_site.
     Gaps and insertion codes inside a chain are kept.
 
     Parameters:
@@ -1692,7 +1693,6 @@ def concatenation_offsets(myfile, molID_class):
             add_residue(line_split[6], line_split[15])
         elif category == '_pdbx_poly_seq_scheme' and line_split != [] and not line.startswith(('_', 'loop_')):
             add_residue(line_split[0], line_split[5])
-            add_residue(line_split[0], line_split[6])
     myfile.seek(0)
 
     offsets = {}
