@@ -1677,10 +1677,14 @@ def concatenation_offsets(myfile, molID_class):
     last_residue = {}
 
     def add_residue(chID, number):
-        if chID in molID_class.concat_order and number.lstrip('-').isdigit():
+        if chID not in molID_class.concat_order:
+            return
+        try:
             number = int(number)
-            first_residue[chID] = min(first_residue.get(chID, number), number)
-            last_residue[chID] = max(last_residue.get(chID, number), number)
+        except ValueError:  # '?' or '.'
+            return
+        first_residue[chID] = min(first_residue.get(chID, number), number)
+        last_residue[chID] = max(last_residue.get(chID, number), number)
 
     category = None
     for line in myfile:
