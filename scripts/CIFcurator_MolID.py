@@ -1,4 +1,4 @@
-#!/Users/fatima/anaconda3/envs/PDBCleanV2/bin/python
+#!/Applications/anaconda3/envs/CIFcurator/bin/python3.14
 # coding: utf-8
 #
 # ! ! ! master_molID_class_list is very important
@@ -52,6 +52,7 @@ The answers can also be given on standard input, for example:
 from __future__ import print_function
 import argparse, glob
 from CIFcurator import cifcuratormolidcifutils as molidutils
+from CIFcurator import cifcluster
 
 
 ########################
@@ -62,16 +63,20 @@ parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument('source_dir', help='Directory with the input CIF files (for example, the output of Step 1, CIFcurator_Download.py)')
 parser.add_argument('target_dir', help='Directory where the new CIF files are saved')
+parser.add_argument('project_dir', help='Directory where all project contents are located')
 args = parser.parse_args()
 source_dir = args.source_dir
 target_dir = args.target_dir
+project_dir = args.project_dir
 
 
 #########################################
 # READ PDB FILES AND DEFINE MolID LISTS #
 #########################################
-
 filelist=glob.glob(source_dir+'/*.cif')
+cifcluster.run_clustering_pipeline(filelist, project_dir)
+cluster_pdbchids, outlier_case_entries = cifcluster.finding_problematic_cluster_results(f"{project_dir}/clustering_storage/")
+
 master_molID_class_list = molidutils.pdb_to_masterlist(filelist)
 unique_molID_occur_map  = molidutils.CreateMasterUniqueMolIDMap(master_molID_class_list)
 molIDConversion_list    = molidutils.uniquelist_to_conversionlist(unique_molID_occur_map)
@@ -104,10 +109,8 @@ while(input_menu != "QUIT"):
              1) Show full conversion
              2) Show only unassigned conversions
              3) Enter input file
-             4) Search MolID to add chain ID conversion
-             5) Go entry by entry to add chain ID conversion
-             6) Remove a chain ID conversion
-             A) Track changes (original_chain_name:new_chain:entity:file_name)
+             4) Generate input file
+             Type 'QUIT' to exit
           """)
     if (input_menu_complete == "1"):
         print("    7) Continue to next step of curation")
@@ -119,16 +122,14 @@ while(input_menu != "QUIT"):
     elif (input_menu == "3"):
         molIDConversion_list = molidutils.add_user_conversion(molIDConversion_list)
     elif (input_menu == "4"):
-        molIDConversion_list = molidutils.edit_conversion_interface(molIDConversion_list, action='add')#FAPA
-    elif (input_menu == "5"):
-        molIDConversion_list = molidutils.edit_conversion_manual(molIDConversion_list)
-    elif (input_menu == "6"):
-        molIDConversion_list = molidutils.edit_conversion_interface(molIDConversion_list, action='remove')
-    elif (input_menu == "A"):
-        molidutils.show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_lists,molIDConversion_list, MolID_to_files_map,
-                                                                       MolID_occur_dict_of_lists, target_dir)
+        cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list, cluster_pdbchids, outlier_case_entries, project_dir)
     elif (input_menu == "7"):
         if (input_menu_complete == "1"):
+            print("Saving 'Track changes' to output directory")
+            molidutils.show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_lists,
+                                                                           molIDConversion_list, MolID_to_files_map,
+                                                                           MolID_occur_dict_of_lists, target_dir)
+
             master_molID_class_list = molidutils.update_masterlist(master_molID_class_list, molIDConversion_list)
             count_problems = molidutils.problem_counter(master_molID_class_list)
             if (count_problems == 0):
@@ -216,6 +217,7 @@ if (concat_menu == "START"):
                  4) Accept proposed concatenation one by one
                     (Repeat this step until finalizing option appears)
                  5) Accept ALL (BE CAREFUL, make sure you agree with all concatenations)
+                 Type 'QUIT' to exit.
               """)
         if (concat_menu_complete == "1"):
             print("    6) Finalize Curation")
@@ -238,7 +240,7 @@ if (concat_menu == "START"):
             allnewchains=molidutils.return_unassigned_conversion(master_molID_class_list, step='concatenation')
             for newchain in allnewchains:
                 new_order=None
-                master_molID_class_list = molidutils.list_accept_concatenations_auto(master_molID_class_list, newchain, new_order=new_order, action='accept')[0]
+                master_molID_class_list = molidutils.list_accept_concatenations_auto(master_molID_class_list, newchain, new_order=new_order)[0]
             count_problems = molidutils.problem_counter(master_molID_class_list)
             print(count_problems)
         elif (concat_menu == "6"):

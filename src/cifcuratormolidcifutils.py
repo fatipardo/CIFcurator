@@ -102,6 +102,10 @@ class MolID(object):
     -----------
     file_name : str
         The name of the CIF.
+    entity_type_map : dict
+        A mapping of entity IDs to their entity types.
+    entity_name_map : dict
+        A mapping of entity IDs to their entity names.
     chID_newchID_map : dict
         A dictionary mapping original chain IDs (oldchID) to new chain IDs (newchID).
     molID_chID : dict
@@ -127,7 +131,7 @@ class MolID(object):
         Updates the concatenation order for a given chain ID, ensuring consistency with
         other chain IDs that share the same new chain ID.
     """
-    def __init__(self, file_name, chID_newchID_map, molID_chID,
+    def __init__(self, file_name, entity_type_map, entity_name_map, chID_newchID_map, molID_chID,
                  concat_order, complete_order):
         """
         Initializes the MolID class with the provided parameters.
@@ -146,6 +150,8 @@ class MolID(object):
             A dictionary indicating whether a chain ID has been fully processed (True) or not (False).
         """
         self.file_name = file_name
+        self.entity_type_map = entity_type_map
+        self.entity_name_map = entity_name_map
         self.chID_newchID_map = chID_newchID_map
         self.molID_chID = molID_chID
         self.concat_order = concat_order
@@ -328,8 +334,13 @@ def make_MolID_cif(myfile):
     Returns:
     --------
     my_molID_class : MolID
-        An instance of the MolID class containing the extracted entity name's (MolIDs)
-        with their chain IDs, and initialized but empty concatenation and completion order map.
+        An instance of the MolID class containing:
+        - entity_type_map: A mapping of entity IDs to their entity types.
+        - entity_name_map: A mapping of entity IDs to their entity names.
+        - molID_chID: A mapping of entity names (MolIDs) to their chain IDs.
+        - chID_newchID_map: An initialized but empty mapping of chain IDs to new chain IDs.
+        - concat_order: An initialized but empty concatenation order map.
+        - complete_order: An initialized but empty completion order map.
     """
     file_name = myfile.name
     chID_newchID_map = {}
@@ -355,6 +366,18 @@ def make_MolID_cif(myfile):
 
     entity_list = mmcif_dict['_entity.id']
     molID_list = mmcif_dict['_entity.pdbx_description']
+    entity_type_list = mmcif_dict['_entity.type']
+
+    entity_type_map = {
+        entity_list[i]: entity_type_list[i]
+        for i in range(len(entity_list))
+    }
+
+    entity_name_map = {
+        entity_list[i]: molID_list[i]
+        for i in range(len(entity_list))
+    }
+
     molID_list = [i.upper() for i in molID_list]
 
     for i in range(len(entity_list)):
@@ -365,7 +388,7 @@ def make_MolID_cif(myfile):
                 else:
                     molID_chID[molID_list[i]].append(chID)
 
-    my_molID_class = MolID(file_name, chID_newchID_map, molID_chID, concat_order, complete_order)
+    my_molID_class = MolID(file_name, entity_type_map, entity_name_map, chID_newchID_map, molID_chID, concat_order, complete_order)
     my_molID_class.check_for_concatenations()
     return my_molID_class
 # END make_MolID_cif
@@ -909,55 +932,6 @@ def add_user_conversion(molIDConversion_list):
     # !! molIDConversion_list has been updated
     return molIDConversion_list
 
-def edit_conversion_interface(molIDConversion_list, action='add'): #FAPA: IT WAS A TYPO!!! -_-
-    """
-    Interface for interacting with and modifying molIDConversion objects in the list.
-
-    This function allows users to search for molID objects, narrow down the search results, and modify chain IDs based
-    on the action ('add' or 'remove').
-
-    Parameters:
-    -----------
-    molIDConversion_list : list
-        A list of molIDConversion objects containing entity names (molID) and their associated chain IDs.
-
-    action : str, optional
-        The action to perform on the chain IDs. It determines whether chain IDs should be added or removed.
-        Default is 'add'.
-
-    Returns:
-    --------
-    molIDConversion_list : list
-        The updated list of molIDConversion objects after performing the specified action.
-    """
-    search_term = input('MolID search term: ')
-    molIDConversion_list, search_molIDConversion_list = search_conversion(molIDConversion_list, search_term) #FAPA removed molidutils.
-    input_submenu = 0
-    while (input_submenu != "DONE"):
-        print("    1) Further narrow down search results")
-        if(action=='add'):
-            print("    2) Add chain ID to conversion templates")
-        elif(action=='remove'):
-            print("    2) Remove chain ID from conversion templates")
-        input_submenu = input('Option Number: ')
-        if (input_submenu == "QUIT"):
-            input_submenu = "DONE"
-        if (input_submenu == "1"):
-            search_term = input('MolID search term: ')
-            molIDConversion_list, search_molIDConversion_list = search_again_conversion(molIDConversion_list, search_molIDConversion_list, search_term)
-        elif (input_submenu == "2"):
-            if(action=='add'):
-                print("""Enter new chain IDs, comma separated, no spaces""")
-            elif(action=='remove'):
-                print("""Enter chain ID to be removed, comma separated, no spaces""")
-            chID_list = input('Chain IDs: ')
-            if (chID_list == "") or (chID_list == "QUIT"):
-                pass
-            else:
-                molIDConversion_list, search_molIDConversion_list = edit_chain_conversion(molIDConversion_list, search_molIDConversion_list, chID_list, action=action)
-            input_submenu = "DONE"
-    return molIDConversion_list
-
 def search_conversion(molIDConversion_list, search_term):
     """
     Search for an entity name in the molIDConversion list, print its details, and remove it from the list.
@@ -1081,35 +1055,6 @@ def edit_chain_conversion(molIDConversion_list,search_molIDConversion_list, chID
         molIDConversion_list.append(molIDConversion)
     return molIDConversion_list, search_molIDConversion_list
 
-def edit_conversion_manual(molIDConversion_list):
-    """
-    Manually edit chain IDs for each molIDConversion object in the list.
-
-    This function asks user to enter chain IDs for each entity name (molIDConversion object).
-    Each entity name is updated with the new chain IDs and checks their completeness.
-
-    Parameters:
-    -----------
-    molIDConversion_list : list
-        A list of molIDConversion objects, each representing an entity name (molID) with its associated chain IDs.
-
-    Returns:
-    --------
-    molIDConversion_list : list
-        The updated list of molIDConversion objects, with each object modified based on the user provided chain IDs.
-    """
-    print("Enter chain IDs for each of the following MolID.")
-    print("Comma separated, no spaces")
-    for molIDConversion in molIDConversion_list:
-        chID_list = input(molIDConversion.molID+":")
-        if (chID_list == "") or (chID_list == "QUIT"):
-            pass
-        else:
-            chID_list = chID_list.split(',')
-        molIDConversion.add_chID_list(chID_list)
-        molIDConversion.check_for_completeness()
-    return molIDConversion_list
-
 def check_complete(molIDConversion_list):
     """
     Counts the number of entity names with incomplete chain ID assignments and indicates if all are complete.
@@ -1215,16 +1160,19 @@ def edit_concatenation_interface(master_molID_class_list, new_order=None, action
                 print("""Select one of the following options to proceed:
                          1) Perform new search
                          2) Update new chain ID
+                         Type 'QUIT' to exit
                       """)
             elif(action=='update'):
                 print("""Select one of the following options to proceed:
                          1) Perform new search
                          2) Update concatenation order
+                         Type 'QUIT' to exit
                       """)
             elif(action=='accept'):
                 print("""Select one of the following options to proceed:
                          1) Perform new search
                          2) Accept planned concatenation
+                         Type 'QUIT' to exit
                       """)
             concat_submenu = input('Option Number: ')
             if (concat_submenu == "1"):
@@ -1290,16 +1238,19 @@ def list_accept_concatenations(master_molID_class_list, search_term, new_order=N
                 print("""Select one of the following options to proceed:
                          1) Perform new search
                          2) Update new chain ID
+                         Type 'QUIT' to exit
                       """)
             elif(action=='update'):
                 print("""Select one of the following options to proceed:
                          1) Perform new search
                          2) Update concatenation order
+                         Type 'QUIT' to exit
                       """)
             elif(action=='accept'):
                 print("""Select one of the following options to proceed:
                          1) Perform new search
                          2) Accept planned concatenation
+                         Type 'QUIT' to exit
                       """)
             concat_submenu = input('Option Number: ')
             if (concat_submenu == "1"):
@@ -1327,83 +1278,34 @@ def list_accept_concatenations(master_molID_class_list, search_term, new_order=N
     return master_molID_class_list, new_order
 
 
-def list_accept_concatenations_auto(master_molID_class_list, search_term, new_order=None, action='accept'):
+def list_accept_concatenations_auto(master_molID_class_list, search_term, new_order=None):
     """
-    Automate the process of handling concatenation options for entity names based on user input.
-
-    Function allows uses to perform a new search, update chain IDs, or accept planned concatenations
-    based on the search term. It asks user to accept or update concatenation details and
-    modifies the entity name class list as so.
+    Accept planned concatenations for entity names based on the search term.
 
     Parameters
     ----------
     master_molID_class_list : list
-        A list of `MolID` class instances, each containing entity name and chain ID information.
+        A list of MolID class instances containing entity name and chain ID information.
     search_term : str
-        A search term formatted as 'File:MolID:OldChain:NewChain:ConcatOrder' used to filter the entity names
-        and chain IDs for concatenation operations.
+        A search term formatted as 'File:MolID:OldChain:NewChain:ConcatOrder'.
     new_order : str, optional
-        A string representing a new concatenation order or chain ID, depending on the `action`. Default is None.
-    action : str, optional
-        The action to be performed, which can be one of 'try', 'update', or 'accept'.
-        - 'try': Attempts to update the chain ID or concatenation order.
-        - 'update': Updates the concatenation order.
-        - 'accept': Accepts the planned concatenation changes.
-        Default is 'accept'.
+        The concatenation order to apply.
 
     Returns
     -------
     master_molID_class_list : list
-        The updated list of `MolID` class instances after processing the concatenation options.
+        The updated list of MolID class instances.
     new_order : str
-        The updated new order or chain ID provided by the user, if applicable.
+        The concatenation order provided by the user.
     """
-    concat_submenu = 0
-    while(concat_submenu != "QUIT"):
-        search_term = search_term.split(":")
 
-        if concat_submenu != "QUIT":
-            found_molID_class_chID_map, molID_class_been_copied = search_chains(master_molID_class_list, search_term)
-        while (concat_submenu != "QUIT"):
-            if(action=='try'):
-                print("""Select one of the following options to proceed:
-                         1) Perform new search
-                         2) Update new chain ID
-                      """)
-            elif(action=='update'):
-                print("""Select one of the following options to proceed:
-                         1) Perform new search
-                         2) Update concatenation order
-                      """)
-            elif(action=='accept'):
-                print("""Select one of the following options to proceed:
-                         1) Perform new search
-                         2) Accept planned concatenation
-                      """)
+    search_term = search_term.split(":")
+    found_molID_class_chID_map, molID_class_been_copied = search_chains(master_molID_class_list, search_term)
 
-            concat_submenu = "2"
-            if (concat_submenu == "1"):
-                break
-            elif (concat_submenu == "2"):
-                if(action=='try'):
-                    new_order = input('New Chain ID: ')
-                elif(action=='update'):
-                    new_order = input('New concatenation order: ')
-                found_molID_class_chID_map = edit_chain_order(found_molID_class_chID_map, new_order, action=action)
-                if(action=='try'):
-                    print_conflicts(found_molID_class_chID_map)
-                    print("Would you like to accept or deny these changes?")
-                    while (concat_submenu != "QUIT"):
-                        concat_submenu = input('Enter ACCEPT or DENY: ')
-                        if (concat_submenu == "ACCEPT"):
-                            master_molID_class_list = accept_newchain(master_molID_class_list, found_molID_class_chID_map)
-                        concat_submenu = "QUIT"
+    found_molID_class_chID_map = edit_chain_order(found_molID_class_chID_map, new_order, action='accept')
 
-                else:
+    master_molID_class_list = accept_newchain(master_molID_class_list, found_molID_class_chID_map)
 
-                    master_molID_class_list = accept_newchain(master_molID_class_list, found_molID_class_chID_map)
-
-                    concat_submenu = "QUIT"
     return master_molID_class_list, new_order
 
 
