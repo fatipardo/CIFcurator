@@ -1055,35 +1055,6 @@ def edit_chain_conversion(molIDConversion_list,search_molIDConversion_list, chID
         molIDConversion_list.append(molIDConversion)
     return molIDConversion_list, search_molIDConversion_list
 
-def edit_conversion_manual(molIDConversion_list):
-    """
-    Manually edit chain IDs for each molIDConversion object in the list.
-
-    This function asks user to enter chain IDs for each entity name (molIDConversion object).
-    Each entity name is updated with the new chain IDs and checks their completeness.
-
-    Parameters:
-    -----------
-    molIDConversion_list : list
-        A list of molIDConversion objects, each representing an entity name (molID) with its associated chain IDs.
-
-    Returns:
-    --------
-    molIDConversion_list : list
-        The updated list of molIDConversion objects, with each object modified based on the user provided chain IDs.
-    """
-    print("Enter chain IDs for each of the following MolID.")
-    print("Comma separated, no spaces")
-    for molIDConversion in molIDConversion_list:
-        chID_list = input(molIDConversion.molID+":")
-        if (chID_list == "") or (chID_list == "QUIT"):
-            pass
-        else:
-            chID_list = chID_list.split(',')
-        molIDConversion.add_chID_list(chID_list)
-        molIDConversion.check_for_completeness()
-    return molIDConversion_list
-
 def check_complete(molIDConversion_list):
     """
     Counts the number of entity names with incomplete chain ID assignments and indicates if all are complete.
