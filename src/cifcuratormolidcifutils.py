@@ -374,7 +374,7 @@ def make_MolID_cif(myfile):
     }
 
     entity_name_map = {
-        entity_list[i]: molID_list[i]
+        entity_list[i]: molID_list[i].upper()
         for i in range(len(entity_list))
     }
 
