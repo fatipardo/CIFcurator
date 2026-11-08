@@ -283,6 +283,9 @@ def writing_cluster_FASTA(seqres_dict, cluster_dict, clusterFastaStoragePath):
     -------
     None
     """
+    for filename in os.listdir(clusterFastaStoragePath):
+        if filename.endswith('_cluster.txt'):
+            os.remove(os.path.join(clusterFastaStoragePath, filename))
     cluster_num = 1
     for key in cluster_dict:
         with open(f'{clusterFastaStoragePath}/{cluster_num}_{key}_cluster.txt', 'w') as file:
