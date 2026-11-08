@@ -647,10 +647,9 @@ def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
             clusteringStorage, f"{org}_seqres.txt"
         )
 
-        if not os.path.exists(seqres_path):
-            with open(seqres_path, "w") as f:
-                for head, seq in zip(heads, seqs):
-                    f.write(f"{head}\n{seq}\n")
+        with open(seqres_path, "w") as f:
+            for head, seq in zip(heads, seqs):
+                f.write(f"{head}\n{seq}\n")
 
         # Run clustering only for non-empty groups
         print(f"Cluster Stage: {org}")
