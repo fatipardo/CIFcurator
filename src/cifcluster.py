@@ -631,6 +631,9 @@ def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
     for org, pdbs, heads, seqs in groups:
         # Skip empty groups
         if not seqs:
+            stale_storage = os.path.join(clustering_directory, f"{org}_clustering_storage")
+            if os.path.isdir(stale_storage):
+                shutil.rmtree(stale_storage)
             print(f"Skipping {org}: no sequences found.")
             continue
 
