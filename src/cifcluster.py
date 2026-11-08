@@ -142,7 +142,7 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
                 mol_id = meta_data_parts[1].strip()
                 chid = meta_data_parts[0].split('_')[2]
                 pdb_chid = pdb_id + '_' + chid
-                entity_name = ' '.join(meta_data_parts[3:]).replace("'", "")
+                entity_name = ' '.join(meta_data_parts[3:]).replace("'", "").replace(":", "")
 
                 if pdb_id_filter and pdb_id != pdb_id_filter:
                     continue
