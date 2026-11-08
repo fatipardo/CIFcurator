@@ -727,7 +727,7 @@ def finding_problematic_cluster_results(clustering_directory):
     # Using sets prevents entity names from being overwritten
     outlier_case_entries = {}
 
-    warning_message_pdb_entries_multiple_files = {}
+    warning_message_pdb_entries_multiple_files = set()
 
     # Identify entities appearing in multiple cluster files
     if entities_in_multiple_files:
