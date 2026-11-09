@@ -1018,13 +1018,23 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
         if entity not in conflict_type:
             entity_to_assigned_chains.setdefault(entity, chain)
 
-    for entity_name, base_chain in entity_to_assigned_chains.items():
-        count = chain_entity_info.get(entity_name, 1)
+# Copilot issue
+    next_copy_index = {} # Used to prevent polymer entities appearing
+                         # in the same cluster from receiving the same chain ID -> cluster1: ent1 = [A, Ab], ent2 = [Ac, Ad]
+    for entity_name, base_chain in sorted(entity_to_assigned_chains.items(), key=lambda item: (item[1], item[0])):
+        # Sorts entities by their base chain and then their entity name
+
+        count = chain_entity_info.get(entity_name, 1) # Get chain count for entity, if no chain count is available, assume 1
+
         if entity_name in polymers:
+            start_index = next_copy_index.get(base_chain, 0)
+
             final_chain_set[entity_name] = [
-                f"{base_chain}{get_combination(i)}"
+                f"{base_chain}{get_combination(start_index + i)}"
                 for i in range(count)
             ]
+            next_copy_index[base_chain] = start_index + count
+
         else:
             final_chain_set[entity_name] = [base_chain] * count
 
