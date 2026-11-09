@@ -1054,7 +1054,7 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
             f.write(f"{key}:{joined_values}\n")
 
 
-def run_clustering_pipeline(filelist, project_dir):
+def run_clustering_pipeline(filelist, project_dir, seqres_file):
     """
     Runs the initial processing pipeline for preparing structural data
     for sequence clustering.
@@ -1081,7 +1081,6 @@ def run_clustering_pipeline(filelist, project_dir):
     None
     """
     clustering_directory = f"{project_dir}/clustering_storage/"
-    seqres_file = f"{project_dir}/seqres.txt"
 
     try:
         os.mkdir(clustering_directory)

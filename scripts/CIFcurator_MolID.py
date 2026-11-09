@@ -63,19 +63,24 @@ parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument('source_dir', help='Directory with the input CIF files (for example, the output of Step 1, CIFcurator_Download.py)')
 parser.add_argument('target_dir', help='Directory where the new CIF files are saved')
-parser.add_argument('project_dir', help='Directory where all project contents are located')
+parser.add_argument('projdir', default='.',
+                    help='Project directory, where raw_bank and clean_bank are created (default: current directory)')
+parser.add_argument('--seqfile', default=None,
+                    help='File with the sequences of all the structures in the PDB (default: {projdir}/seqres.txt)')
+
 args = parser.parse_args()
 source_dir = args.source_dir
 target_dir = args.target_dir
-project_dir = args.project_dir
+projdir = args.projdir
+seqfile = args.seqfile if args.seqfile is not None else projdir+'/seqres.txt'
 
 
 #########################################
 # READ PDB FILES AND DEFINE MolID LISTS #
 #########################################
 filelist=glob.glob(source_dir+'/*.cif')
-cifcluster.run_clustering_pipeline(filelist, project_dir)
-cluster_pdbchids, outlier_case_entries = cifcluster.finding_problematic_cluster_results(f"{project_dir}/clustering_storage/")
+cifcluster.run_clustering_pipeline(filelist, projdir, seqfile)
+cluster_pdbchids, outlier_case_entries = cifcluster.finding_problematic_cluster_results(f"{projdir}/clustering_storage/")
 
 master_molID_class_list = molidutils.pdb_to_masterlist(filelist)
 unique_molID_occur_map  = molidutils.CreateMasterUniqueMolIDMap(master_molID_class_list)
