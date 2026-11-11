@@ -65,7 +65,7 @@ parser.add_argument('source_dir', help='Directory with the input CIF files (for 
 parser.add_argument('target_dir', help='Directory where the new CIF files are saved')
 parser.add_argument('projdir', default='.',
                     help='Project directory, where raw_bank and clean_bank are created (default: current directory)')
-parser.add_argument('seqfile', default=None,
+parser.add_argument('seqfile', nargs='?', default=None,
                     help='File with the sequences of all the structures in the PDB (default: {projdir}/seqres.txt)')
 args = parser.parse_args()
 source_dir = args.source_dir
