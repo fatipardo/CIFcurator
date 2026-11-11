@@ -65,9 +65,8 @@ parser.add_argument('source_dir', help='Directory with the input CIF files (for 
 parser.add_argument('target_dir', help='Directory where the new CIF files are saved')
 parser.add_argument('projdir', default='.',
                     help='Project directory, where raw_bank and clean_bank are created (default: current directory)')
-parser.add_argument('--seqfile', default=None,
+parser.add_argument('seqfile', default=None,
                     help='File with the sequences of all the structures in the PDB (default: {projdir}/seqres.txt)')
-
 args = parser.parse_args()
 source_dir = args.source_dir
 target_dir = args.target_dir
@@ -115,7 +114,6 @@ while(input_menu != "QUIT"):
              2) Show only unassigned conversions
              3) Enter input file
              4) Generate input file
-             Type 'QUIT' to exit
           """)
     if (input_menu_complete == "1"):
         print("    7) Continue to next step of curation")
@@ -127,7 +125,7 @@ while(input_menu != "QUIT"):
     elif (input_menu == "3"):
         molIDConversion_list = molidutils.add_user_conversion(molIDConversion_list)
     elif (input_menu == "4"):
-        cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list, cluster_pdbchids, outlier_case_entries, project_dir)
+        cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list, cluster_pdbchids, outlier_case_entries, projdir)
     elif (input_menu == "7"):
         if (input_menu_complete == "1"):
             print("Saving 'Track changes' to output directory")
@@ -222,7 +220,6 @@ if (concat_menu == "START"):
                  4) Accept proposed concatenation one by one
                     (Repeat this step until finalizing option appears)
                  5) Accept ALL (BE CAREFUL, make sure you agree with all concatenations)
-                 Type 'QUIT' to exit.
               """)
         if (concat_menu_complete == "1"):
             print("    6) Finalize Curation")
