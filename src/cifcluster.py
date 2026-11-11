@@ -892,7 +892,7 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
         if index == 0:
             return ''
 
-        alphabet = list(string.ascii_lowercase[1:]) + list(string.digits)
+        alphabet = list(string.ascii_lowercase[1:])
         base = len(alphabet)
 
         length = 1
