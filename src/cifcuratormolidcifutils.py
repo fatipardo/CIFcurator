@@ -714,8 +714,7 @@ def show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_li
                 molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list[:nchains]))
 
             chainds_for_print = re.sub(r"\[|\]| |'", '',str(MolID_ChainID_dict_of_lists[molIDConversion.molID][counter]))
-
-            print(chainds_for_print + ":" + molIDCon_chID_list_forPrint+":"+molIDConversion.molID+":"+str(len(filelist))+":"+file_name)
+            
             if write_csv:
                 with open(f'{target_dir}/OldChainID_NewChainID_numbered_MolID_Files_Map.csv', 'a') as fout:
                     fout.write(f'{chainds_for_print}:{molIDCon_chID_list_forPrint}:{molIDConversion.molID}:{str(len(filelist))}:{file_name}\n')

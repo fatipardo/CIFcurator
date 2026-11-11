@@ -728,7 +728,7 @@ def finding_problematic_cluster_results(clustering_directory):
 
     # Maps pdb_id_chid -> set of associated entity names
     # Using sets prevents entity names from being overwritten
-    outlier_case_entries = set()
+    outlier_case_entries = {}
 
     warning_message_pdb_entries_multiple_files = set()
 
