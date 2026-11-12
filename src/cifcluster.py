@@ -468,8 +468,8 @@ def clustering(clusteringStorage, seqres_file):
     print("absolute:", os.path.abspath(seqres_file))
     print("exists:", os.path.exists(seqres_file))
 
+    os.chdir(output_directory)
     try:
-        os.chdir(output_directory)
 
         # 1. Create DB
         print("Creating MMseqs2 database...")
