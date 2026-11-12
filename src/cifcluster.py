@@ -966,13 +966,11 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
     # 3a. Assign ONE label per non-outlier cluster
     for rep, mem_list in cluster_pdbchids.items():
 
-        # Skip clusters containing any outlier PDB chain ID
-        is_outlier = any(mem in outlier_case_entries for mem in mem_list)
-
-        if not is_outlier:
+        non_outlier_members = [mem for mem in mem_list if mem not in outlier_case_entries]
+        if non_outlier_members:
             cluster_label = get_label(n)
 
-            for mem in mem_list:
+            for mem in non_outlier_members:
                 chain_labels[mem] = cluster_label
 
             n += 1  # Increment once per cluster
