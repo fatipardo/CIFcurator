@@ -317,7 +317,8 @@ def writing_entity_FASTA(clustering_directory, seqres_dict, PDB_ID_list):
     None
     """
     # seqres_dict dictionary of the big seqres
-    matching_labels = [label for label in seqres_dict if label[:12] in PDB_ID_list] # 0000100D_A
+    pdb_ids = set(PDB_ID_list)
+    matching_labels = [label for label in seqres_dict if label[:12] in pdb_ids]
     entityFasta = f'sub_seqres.txt'
     with open(f'{clustering_directory}/{entityFasta}', 'w') as file:
         for label in matching_labels:
