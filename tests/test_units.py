@@ -10,6 +10,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import runpy
 import shutil
 import subprocess
@@ -23,7 +24,7 @@ from urllib.error import HTTPError
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _support  # noqa: E402  (makes CIFcurator importable from src/)
 
-from CIFcurator import alignmentutils, cifcurator_io, cleanutils, pdbutils  # noqa: E402
+from CIFcurator import alignmentutils, cifcluster, cifcurator_io, cleanutils, pdbutils  # noqa: E402
 from CIFcurator import cifcuratorresiduestandardizationutils as resstd  # noqa: E402
 from CIFcurator import cifcuratorchainstandardizationutils as chainstd  # noqa: E402
 from CIFcurator import cifcuratormolidcifutils as molidutils  # noqa: E402
@@ -881,6 +882,262 @@ class TestStepsKeepFilesConsistent(TempDirTestCase):
         self.assertEqual(pdb_ins, ['?', 'A', '.', '?', '?', 'A'])
         self.assertEqual(_support.mmcif_problems(self.out), [])
 
+
+
+# NOV2026 (PR #240): sequences as in pdb_seqres.fasta, for the clustering of Step 3. The entity names have the
+# quote and colon that cleanutils.clean_cif removes from the CIF files.
+SEQRES = """>pdb_00009xyz_A mol:protein length:30  Test protein
+MKTAYIAKQRQISFVKSHFSRQLEERLGLI
+>pdb_00009xyz_B mol:protein length:30  Other: test protein's B chain
+GSHMLEDPVDAFQLGTVLWKHLRNRYPEAT
+>pdb_00009abc_A mol:protein length:30  Test protein
+MKTAYIAKQRQISFVKSHFSRQLEERLGLV
+>pdb_00009abc_R mol:na length:24  RNA: loop
+GGCGCUUAGCGCCAAAGGCGCUUA
+>pdb_00009zzz_A mol:protein length:30  Same sequence as the test protein
+MKTAYIAKQRQISFVKSHFSRQLEERLGLI
+"""
+
+
+class TestClustering(TempDirTestCase):
+    """NOV2026 (PR #240): Step 3 clusters the polymer chains with MMseqs2 and writes an input file from the clusters."""
+    def setUp(self):
+        super().setUp()
+        self.seqres = self.write('seqres.txt', SEQRES)
+        self.storage = os.path.join(self.tmp, 'clustering_storage') + '/'
+
+    def sub_seqres(self, ids=('PDB_00009XYZ', 'PDB_00009ABC')):
+        os.makedirs(self.storage, exist_ok=True)
+        cifcluster.writing_entity_FASTA(self.storage, cifcluster.entry_dict_seqres(self.seqres), list(ids))
+        return os.path.join(self.storage, 'sub_seqres.txt')
+
+    def cluster_files(self, group='PROTEIN'):
+        return sorted(os.listdir(os.path.join(self.storage, group + '_clustering_storage', 'cluster_files')))
+
+    def test_seqres_attributes(self):
+        get = cifcluster.get_attributes_seqres
+        self.assertEqual(get(self.seqres, 'PDBID_CHID')[:2], ['PDB_00009XYZ_A', 'PDB_00009XYZ_B'])
+        self.assertEqual(get(self.seqres, 'PDBID', cif='pdb_00009abc+01'), ['PDB_00009ABC', 'PDB_00009ABC'])
+        self.assertEqual(get(self.seqres, 'CHID', cif='pdb_00009abc'), ['A', 'R'])
+        self.assertEqual(get(self.seqres, 'MOL', cif='pdb_00009abc'), ['mol:protein', 'mol:na'])
+        self.assertEqual(get(self.seqres, 'SEQUENCE', cif='pdb_00009abc')[1], 'GGCGCUUAGCGCCAAAGGCGCUUA')
+
+    def test_entity_labels_match_the_cleaned_cif_files(self):
+        # The entity names of the cleaned CIF files (see TestCleanCif) are the keys of the input file
+        labels = cifcluster.get_attributes_seqres(self.sub_seqres(), 'ENTITY_LABEL', cif='pdb_00009xyz')
+        self.assertEqual(labels, ['TEST PROTEIN', 'OTHER TEST PROTEINS B CHAIN'])
+
+    def test_sub_seqres_has_only_the_project_structures(self):
+        ids = cifcluster.get_attributes_seqres(self.sub_seqres(), 'PDBID_CHID')
+        self.assertEqual(ids, ['PDB_00009XYZ_A', 'PDB_00009XYZ_B', 'PDB_00009ABC_A', 'PDB_00009ABC_R'])
+
+    def test_proteins_and_nucleic_acids_clustered_apart(self):
+        sub = self.sub_seqres()
+        with mock.patch.object(cifcluster, 'clustering') as clustering, quiet():
+            cifcluster.processing_RNA_PROTEIN_cluster(self.storage, sub)
+        self.assertEqual([os.path.basename(c.args[1]) for c in clustering.call_args_list],
+                         ['PROTEIN_seqres.txt', 'RNA_DNA_seqres.txt'])
+        self.assertEqual(cifcluster.get_attributes_seqres(clustering.call_args_list[1].args[1], 'PDBID_CHID'),
+                         ['PDB_00009ABC_R'])
+
+    def test_rerun_rewrites_sequences_and_removes_empty_group(self):
+        # Copilot review: a rerun on fewer structures must not cluster the sequences of the first run
+        with mock.patch.object(cifcluster, 'clustering'), quiet():
+            cifcluster.processing_RNA_PROTEIN_cluster(self.storage, self.sub_seqres())
+            cifcluster.processing_RNA_PROTEIN_cluster(self.storage, self.sub_seqres(['PDB_00009XYZ']))
+        protein = os.path.join(self.storage, 'PROTEIN_clustering_storage', 'PROTEIN_seqres.txt')
+        self.assertEqual(cifcluster.get_attributes_seqres(protein, 'PDBID_CHID'), ['PDB_00009XYZ_A', 'PDB_00009XYZ_B'])
+        self.assertFalse(os.path.exists(os.path.join(self.storage, 'RNA_DNA_clustering_storage')))
+
+    def test_rerun_removes_old_cluster_files(self):
+        # Copilot review: old cluster files would be read as clusters of the new run
+        path = os.path.join(self.storage, 'PROTEIN_clustering_storage', 'cluster_files')
+        self.write(os.path.join(path, '7_PDB_00001OLD_A_cluster.txt'), '')
+        seqres_dict = cifcluster.entry_dict_seqres(self.sub_seqres())
+        cifcluster.writing_cluster_FASTA(seqres_dict, {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009ABC_A'}}, path)
+        self.assertEqual(self.cluster_files(), ['1_PDB_00009XYZ_A_cluster.txt'])
+
+    def write_clusters(self, clusters):
+        """Write clusters.tsv and the cluster files of the PROTEIN group, as clustering() does after MMseqs2."""
+        group = os.path.join(self.storage, 'PROTEIN_clustering_storage')
+        self.write(os.path.join(group, 'clusters.tsv'),
+                   ''.join('{0}\t{1}\n'.format(rep, mem) for rep, members in clusters for mem in members))
+        os.makedirs(os.path.join(group, 'cluster_files'), exist_ok=True)
+        seqres_dict = cifcluster.entry_dict_seqres(os.path.join(self.storage, 'sub_seqres.txt'))
+        for n, (rep, members) in enumerate(clusters):
+            with open(os.path.join(group, 'cluster_files', '{0}_{1}_cluster.txt'.format(n + 1, rep)), 'w') as f:
+                for mem in members:
+                    f.writelines(seqres_dict[mem])
+
+    def test_no_problems_found(self):
+        self.sub_seqres()
+        self.write_clusters([('PDB_00009XYZ_A', ['PDB_00009XYZ_A', 'PDB_00009ABC_A']), ('PDB_00009XYZ_B', ['PDB_00009XYZ_B'])])
+        with quiet():
+            clusters, outliers = cifcluster.finding_problematic_cluster_results(self.storage)
+        self.assertEqual(clusters, {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009ABC_A'},
+                                    'PDB_00009XYZ_B': {'PDB_00009XYZ_B'}})
+        self.assertEqual(outliers, {})
+        self.assertEqual([f for f in os.listdir(self.storage) if f.endswith('.csv')], [])
+
+    def test_chain_in_two_clusters_is_reported(self):
+        # Copilot review: used to raise AttributeError (dict.add) instead of writing the warning table
+        self.sub_seqres()
+        self.write_clusters([('PDB_00009XYZ_A', ['PDB_00009XYZ_A']), ('PDB_00009ABC_A', ['PDB_00009ABC_A', 'PDB_00009XYZ_A'])])
+        with quiet():
+            _, outliers = cifcluster.finding_problematic_cluster_results(self.storage)
+        self.assertEqual(outliers, {'PDB_00009XYZ_A': {'TEST PROTEIN'}, 'PDB_00009ABC_A': {'TEST PROTEIN'}})
+        with open(os.path.join(self.storage, 'duplicate_entities_warning.csv')) as f:
+            self.assertEqual([line.split(',')[:3] for line in f][1:],
+                             [['PDB_00009XYZ', 'TEST PROTEIN', 'A']] * 2)
+        self.assertTrue(os.path.isfile(os.path.join(self.storage, 'duplicate_entries_warning.csv')))
+
+    def test_entity_in_two_clusters_is_reported(self):
+        self.sub_seqres()
+        self.write_clusters([('PDB_00009XYZ_A', ['PDB_00009XYZ_A']), ('PDB_00009ABC_A', ['PDB_00009ABC_A'])])
+        with quiet():
+            _, outliers = cifcluster.finding_problematic_cluster_results(self.storage)
+        self.assertEqual(outliers, {'PDB_00009XYZ_A': {'TEST PROTEIN'}, 'PDB_00009ABC_A': {'TEST PROTEIN'}})
+        self.assertEqual(sorted(f for f in os.listdir(self.storage) if f.endswith('.csv')),
+                         ['duplicate_entries_warning.csv'])
+
+    def generate(self, structures, clusters, outliers=None):
+        """
+        Run option 4 (generate input file) on `structures`: {file: {entity name: (entity type, copies)}}.
+        Returns the input file as {entity name: [chain IDs]}.
+        """
+        master, occur = [], {}
+        for name, entities in structures.items():
+            types = {str(i + 1): t for i, (t, _) in enumerate(entities.values())}
+            names = {str(i + 1): e for i, e in enumerate(entities)}
+            master.append(molidutils.MolID(name, types, names, {}, {}, {}, {}))
+            for entity, (_, copies) in entities.items():
+                occur[entity] = max(occur.get(entity, 0), copies)
+        conversions = [molidutils.initial_MolIDConversion(e, n) for e, n in occur.items()]
+        cifcluster.generate_chain_assignments(conversions, master, clusters, outliers or {}, self.tmp)
+        return molidutils.read_input_file(os.path.join(self.tmp, 'input_file.txt'))
+
+    def test_generated_input_file(self):
+        self.sub_seqres()
+        generated = self.generate(
+            {'clean_bank/pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 2), 'WATER': ('water', 3)},
+             'clean_bank/pdb_00009abc+01.cif': {'TEST PROTEIN': ('polymer', 1), 'OTHER TEST PROTEINS B CHAIN': ('polymer', 1),
+                                                'WATER': ('water', 1)}},
+            {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009ABC_A'}, 'PDB_00009XYZ_B': {'PDB_00009XYZ_B'}})
+        # One chain per cluster, copies of a polymer named A, Ab, ... (see chain-ID convention); all the copies of
+        # a ligand in a file get the same chain, so they are concatenated
+        self.assertEqual(generated, {'OTHER TEST PROTEINS B CHAIN': ['B'], 'TEST PROTEIN': ['A', 'Ab'],
+                                     'WATER': ['C', 'C', 'C']})
+        with open(os.path.join(self.tmp, 'input_file.txt')) as f:
+            self.assertEqual(f.readline(), 'OTHER TEST PROTEINS B CHAIN:B\n')
+
+    def test_generated_input_file_completes_the_conversion(self):
+        self.sub_seqres()
+        structures = {'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 3), 'SULFATE ION': ('non-polymer', 1)}}
+        generated = self.generate(structures, {'PDB_00009XYZ_A': {'PDB_00009XYZ_A'}})
+        self.assertEqual(generated, {'SULFATE ION': ['B'], 'TEST PROTEIN': ['A', 'Ab', 'Ac']})
+        conversions = [molidutils.initial_MolIDConversion('TEST PROTEIN', 3),
+                       molidutils.initial_MolIDConversion('SULFATE ION', 1)]
+        with mock.patch('builtins.input', return_value=os.path.join(self.tmp, 'input_file.txt')):
+            conversions = molidutils.add_user_conversion(conversions)
+        self.assertEqual(molidutils.check_complete(conversions), '1')
+
+    def test_outlier_entity_gets_its_own_chain(self):
+        self.sub_seqres()
+        generated = self.generate(
+            {'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 1), 'OTHER TEST PROTEINS B CHAIN': ('polymer', 1)}},
+            {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009XYZ_B'}},
+            {'PDB_00009XYZ_B': {'OTHER TEST PROTEINS B CHAIN'}})
+        self.assertEqual(generated, {'OTHER TEST PROTEINS B CHAIN': ['A'], 'TEST PROTEIN': ['B']})
+
+    def test_polymers_of_one_cluster_in_different_files_get_the_same_chains(self):
+        # NOV2026 (a150fb0): the same protein under two names in two files: both are named A, Ab, ...
+        # (5f14e4f, reverted, continued the copies of the second one as Ac, Ad)
+        self.sub_seqres(('PDB_00009XYZ', 'PDB_00009ZZZ'))
+        generated = self.generate(
+            {'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 2)},
+             'pdb_00009zzz+01.cif': {'SAME SEQUENCE AS THE TEST PROTEIN': ('polymer', 2)}},
+            {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009ZZZ_A'}})
+        self.assertEqual(generated, {'SAME SEQUENCE AS THE TEST PROTEIN': ['A', 'Ab'], 'TEST PROTEIN': ['A', 'Ab']})
+
+    def test_polymer_copies_have_no_digits(self):
+        # NOV2026 (92293e8): copies are named with letters only, so they cannot collide with a base chain label
+        # (Ab ... Az, then Abb, Abc, ...)
+        self.sub_seqres()
+        generated = self.generate({'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 28)}},
+                                  {'PDB_00009XYZ_A': {'PDB_00009XYZ_A'}})
+        chains = generated['TEST PROTEIN']
+        self.assertEqual(chains[:3], ['A', 'Ab', 'Ac'])
+        self.assertEqual(chains[24:], ['Ay', 'Az', 'Abb', 'Abc'])
+        self.assertEqual(len(set(chains)), 28)
+        self.assertTrue(all(c.isalpha() for c in chains))
+
+    def test_entity_names_and_types_read_from_cif(self):
+        # Copilot review: upper case, as the keys of the conversion and the labels of the clusters
+        path = self.write('clean_bank/9xyz+00.cif', ONE_ASSEMBLY)
+        with quiet():
+            (molid,) = molidutils.pdb_to_masterlist([path])
+        self.assertEqual(molid.entity_name_map, {'1': 'TEST PROTEIN', '2': "OTHER: TEST PROTEIN'S B CHAIN"})
+        self.assertEqual(molid.entity_type_map, {'1': 'polymer', '2': 'polymer'})
+
+    @unittest.skipIf(shutil.which('mmseqs') is None, 'mmseqs (MMseqs2) not on PATH')
+    def test_pipeline_with_mmseqs(self):
+        # Proteins only: MMseqs2 needs about 8.5 GB of memory to cluster even one nucleic acid sequence
+        os.makedirs(os.path.join(self.tmp, 'cwd'))
+        with contextlib.chdir(os.path.join(self.tmp, 'cwd')), quiet():
+            cifcluster.run_clustering_pipeline(['clean_bank/pdb_00009xyz+01.cif', 'clean_bank/pdb_00009zzz+01.cif'],
+                                               self.tmp, self.seqres)
+            clusters, outliers = cifcluster.finding_problematic_cluster_results(self.storage)
+        self.assertEqual(os.listdir(os.path.join(self.tmp, 'cwd')), [])
+        # The two copies of the test protein in one cluster, the B chain in another
+        self.assertEqual(sorted(sorted(m) for m in clusters.values()),
+                         [['PDB_00009XYZ_A', 'PDB_00009ZZZ_A'], ['PDB_00009XYZ_B']])
+        self.assertEqual(outliers, {})
+        self.assertEqual(len(self.cluster_files()), 2)
+        self.assertFalse(os.path.exists(os.path.join(self.storage, 'RNA_DNA_clustering_storage')))
+
+
+class TestMolIDScriptHelp(unittest.TestCase):
+    SCRIPT = os.path.join(_support.REPO_DIR, 'scripts', 'CIFcurator_MolID.py')
+
+    @classmethod
+    def setUpClass(cls):
+        cmd, env = _support.script_command('CIFcurator_MolID.py', ['-h'])
+        cls.result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+        with open(cls.SCRIPT) as f:
+            source = f.read()
+        # The code that follows the docstring: the menus the script really prints
+        cls.code = source[source.index('from __future__'):]
+
+    def test_help(self):
+        self.assertEqual(self.result.returncode, 0)
+        # NOV2026 (1c9c2fa): seqfile is an optional positional argument, after projdir
+        self.assertIn('source_dir target_dir [projdir] [seqfile]', self.result.stdout)
+        self.assertNotIn('--seqfile', self.result.stdout)
+
+    def test_help_lists_the_options_of_the_menus(self):
+        # Every "N) Option" line printed by the menus is described in -h, so the two cannot drift apart
+        options = re.findall(r'^\s*(?:print\(")?\s*(\d\) [^\n"(]*[^\s"(])', self.code, re.MULTILINE)
+        self.assertIn('4) Generate input file', options)
+        for option in options:
+            self.assertIn(option, self.result.stdout)
+
+    def test_help_does_not_list_removed_options(self):
+        for removed in ('Search MolID to add chain ID conversion', 'Go entry by entry', 'Remove a chain ID conversion',
+                        'A) Track changes'):
+            self.assertNotIn(removed, self.result.stdout)
+
+    def test_help_does_not_list_quit_as_a_menu_option(self):
+        # NOV2026 (a150fb0): the menus no longer print "Type 'QUIT' to exit", but QUIT still exits
+        self.assertNotIn("Type 'QUIT'", self.code)
+        self.assertNotIn('  QUIT ', self.result.stdout)
+        self.assertIn('Type QUIT at any menu to exit without writing CIF files.', self.result.stdout)
+
+    def test_projdir_is_optional(self):
+        # nargs='?': without it argparse ignores default='.' and projdir is required
+        cmd, env = _support.script_command('CIFcurator_MolID.py', ['only_source_dir'])
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('error: the following arguments are required: target_dir\n', result.stderr)
 
 
 class TestStandardSequencesFile(TempDirTestCase):

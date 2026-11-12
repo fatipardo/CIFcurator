@@ -12,7 +12,10 @@ r"""Step 3 of CIFcurator: assign the chain IDs of the entities (MolIDs) found in
 
 Reads every .cif file in source_dir, lists the entities (MolIDs) found in them, and asks
 you to give each entity a new chain ID for every copy of it. The rewritten CIF files are
-saved in target_dir. The script is interactive: it shows a menu and asks for options.
+saved in target_dir. Before the menu appears, the sequences of the entities are taken from
+the PDB sequence file (seqfile, default projdir/seqres.txt) and clustered with MMseqs2
+(mmseqs must be on your PATH); the results are saved in projdir/clustering_storage/.
+The script is interactive: it shows a menu and asks for options.
 
 Conversion Build Menu:
   1) Show full conversion
@@ -22,18 +25,14 @@ Conversion Build Menu:
   3) Enter input file
          Read the chain IDs from a file with one entity per line, in the format
          ENTITY NAME:chainID,chainID,...   for example   WATER:F,G
-  4) Search MolID to add chain ID conversion
-         Search for an entity by name and add chain IDs to it.
-  5) Go entry by entry to add chain ID conversion
-         Ask for the chain IDs of every entity, one by one.
-  6) Remove a chain ID conversion
-         Search for an entity by name and remove chain IDs from it.
-  A) Track changes
-         Write OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
-         (original_chain_names:new_chain_names:entity_name:number_of_files:file_name).
+  4) Generate input file
+         Propose chain IDs from the MMseqs2 clusters and write them to
+         projdir/input_file.txt, in the format read by option 3. Nothing is assigned
+         yet: review or edit the file, then enter it with option 3.
   7) Continue to next step of curation
-         Shown once every entity has all its chain IDs.
-  QUIT   Exit without writing CIF files.
+         Shown once every entity has all its chain IDs. Writes
+         OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
+         (original_chain_names:new_chain_names:entity_name:number_of_files:file_name).
 
 After option 7, if no two entities share a chain ID, option 6) Finalize Curation writes the
 CIF files to target_dir. Otherwise the Concatenations Menu appears: entities with the same
@@ -43,10 +42,14 @@ chain ID will be concatenated into one chain, and each concatenation must be acc
   3) Search and modify destination chainIDs of proposed concatenations
   4) Accept proposed concatenation one by one
   5) Accept ALL (make sure you agree with all concatenations)
-  6) Finalize Curation
+  6) Finalize Curation (shown once every concatenation is accepted)
+
+Type QUIT at any menu to exit without writing CIF files.
 
 The answers can also be given on standard input, for example:
-  printf '3\nTIM_input_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank
+  printf '4\n3\ninput_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank .
+or, with the sequence file in another directory:
+  printf '4\n3\ninput_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank . /path/to/seqres.txt
 """
 
 from __future__ import print_function
@@ -63,8 +66,8 @@ parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument('source_dir', help='Directory with the input CIF files (for example, the output of Step 1, CIFcurator_Download.py)')
 parser.add_argument('target_dir', help='Directory where the new CIF files are saved')
-parser.add_argument('projdir', default='.',
-                    help='Project directory, where raw_bank and clean_bank are created (default: current directory)')
+parser.add_argument('projdir', nargs='?', default='.',
+                    help='Project directory, where clustering_storage/ and input_file.txt are written (default: current directory)')
 parser.add_argument('seqfile', nargs='?', default=None,
                     help='File with the sequences of all the structures in the PDB (default: {projdir}/seqres.txt)')
 args = parser.parse_args()
