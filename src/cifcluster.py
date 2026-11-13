@@ -173,6 +173,36 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
 
     return attribute_list
 
+def get_combination(index):
+    """
+    Retrieves a specific combination based on its zero-based index.
+    Index 0 returns an empty string.
+    """
+    if index < 0:
+        raise IndexError("Index out of range")
+
+    if index == 0:
+        return ''
+
+    alphabet = list(string.ascii_lowercase[1:])
+    base = len(alphabet)
+
+    length = 1
+
+    while index > base ** length:
+        index -= base ** length
+        length += 1
+
+    result = ""
+
+    for power in range(length - 1, -1, -1):
+        divisor = base ** power
+        digit = (index - 1) // divisor
+        index = (index - 1) % divisor + 1
+        result += alphabet[digit]
+
+    return result
+
 def entry_dict_seqres(seqres_file):
     """
     Builds a dictionary from SEQRES, mapping each PDB ID and chain ID to its corresponding metadata line and sequence.
@@ -663,6 +693,67 @@ def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
     print("\nRNA/DNA and protein clustering stages completed.")
 
 
+def resolve_polymeric_chain_concatenations(master_molID_class_list, project_directory):
+    """Identifies polymeric entities involved in concatenations and assigns unique chain
+    identifiers based on their original chain IDs and the number of chains associated with each entity.
+
+    Parameters
+    ----------
+    master_molID_class_list (list): List of molecular ID classification objects.
+    project_directory (str): Path to the project directory containing input_file.txt.
+    """
+
+    input_file_path = f"{project_directory}/input_file.txt"
+
+    polymers = {}
+    for i in master_molID_class_list:
+        for entid in i.entity_type_map:
+            entity_name = i.entity_name_map[entid]
+            entity_type = i.entity_type_map[entid]
+
+            if entity_type == 'polymer':
+                polymers[entity_name] = 'polymer'
+
+    # Read basic info regarding entities: chain count, base chains
+    entities_to_chains = {}
+    entities_to_chainsCounts = {}
+    final_chain_set = {}
+
+    with open(input_file_path, "r") as f:
+        for line in f:
+            components = line.split(":")
+            if len(components) < 2:
+                continue
+            entity = components[0].strip()
+            chains = components[1].strip().split(",")
+            final_chain_set[entity] = chains
+
+            if entity in polymers:
+                entities_to_chains[entity] = chains[0]
+                entities_to_chainsCounts[entity] = len(chains)
+
+    # Copilot's suggestion
+    next_copy_index = {}
+
+    for entity_name, base_chain in sorted(entities_to_chains.items(), key=lambda item: (item[1], item[0])):
+        count = entities_to_chainsCounts.get(entity_name, 1)
+
+        start_index = next_copy_index.get(base_chain, 0)
+
+        final_chain_set[entity_name] = [
+            f"{base_chain}{get_combination(start_index + i)}"
+            for i in range(count)
+        ]
+
+        # Increment the global index for this base chain so the next entity doesn't overwrite it
+        next_copy_index[base_chain] = start_index + count
+
+    with open(input_file_path, "w") as f:
+        for key, val_list in final_chain_set.items():
+            joined_values = ",".join(val_list)
+            f.write(f"{key}:{joined_values}\n")
+
+
 def finding_problematic_cluster_results(clustering_directory):
     """
     Analyzes clustering results to identify duplicate entities or chains appearing across multiple clusters,
@@ -882,36 +973,6 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
             return f"{letter}{num_idx}{cycle}"
         return f"{letter}{num_idx}"
 
-    def get_combination(index):
-        """
-        Retrieves a specific combination based on its zero-based index.
-        Index 0 returns an empty string.
-        """
-        if index < 0:
-            raise IndexError("Index out of range")
-
-        if index == 0:
-            return ''
-
-        alphabet = list(string.ascii_lowercase[1:])
-        base = len(alphabet)
-
-        length = 1
-
-        while index > base ** length:
-            index -= base ** length
-            length += 1
-
-        result = ""
-
-        for power in range(length - 1, -1, -1):
-            divisor = base ** power
-            digit = (index - 1) // divisor
-            index = (index - 1) % divisor + 1
-            result += alphabet[digit]
-
-        return result
-
     # 1. INITIALIZATION & DATA EXTRACTION
     clustering_directory = f"{project_dir}/clustering_storage/"
     entity_type_structure = {}
@@ -919,7 +980,7 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
     polymers = {}
     nonpolymers = {}
     conflict_type = []
-
+    # I basically just do nothing about the conflicts
     for molIDConversion in current_list:
         molIDConversion.check_for_completeness()
         if not molIDConversion.complete:
@@ -1017,6 +1078,7 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
         if entity not in conflict_type:
             entity_to_assigned_chains.setdefault(entity, chain)
 
+    # We need to add some sort of case where if the chains get concatenated, we then do the old code
     for entity_name, base_chain in entity_to_assigned_chains.items():
         count = chain_entity_info.get(entity_name, 1)
         if entity_name in polymers:

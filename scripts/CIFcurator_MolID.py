@@ -98,6 +98,7 @@ MolID_ChainID_dict_of_lists = molidutils.CreateMasterUniqueMolIDinitialChainIDsL
 # Goal:
 # users complete their molID conversion templates by ensuring that each member of
 # molIDConversion_list has status complete = True
+final_chain_set = None
 input_menu = ""
 input_menu_complete = ""
 # For use in the next section
@@ -128,7 +129,8 @@ while(input_menu != "QUIT"):
     elif (input_menu == "3"):
         molIDConversion_list = molidutils.add_user_conversion(molIDConversion_list)
     elif (input_menu == "4"):
-        cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list, cluster_pdbchids, outlier_case_entries, projdir)
+        final_chain_set = cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list,
+                                                                cluster_pdbchids, outlier_case_entries, projdir)
     elif (input_menu == "7"):
         if (input_menu_complete == "1"):
             print("Saving 'Track changes' to output directory")
@@ -203,12 +205,8 @@ if (concat_menu == "START"):
                   """)
         print("""CIFcurator Concatenations Menu
                  -------------------------------
-                 This menu appeared because you have assigned the same chain name to two (or more) entities.
-                 Note that this will concatenate the entities. So you need to either re-assign chain names,
-                 or ACCEPT concatenations.
-
-                 Note: All proposed concatenations must be accepted (by running option 4 or 5) before the curation can
-                 be completed.
+                 This menu appeared because there has been one or more instances of the same chain being assigned to multiple entities.
+                 Note that this will concatenate the entities. We have re-written the input file to accommodate for this situation.
 
                  Before you do anything, we suggest to choose option 2, so you know which concatenations have not
                  been accepted. It will also give you the proper format of the input for option 3.
@@ -218,11 +216,8 @@ if (concat_menu == "START"):
 
                  Select one of the following options to proceed:
                  1) Show all conversions
-                 2) Show only unaccepted concatenations
-                 3) Search and modify destination chainIDs of proposed concatenations
-                 4) Accept proposed concatenation one by one
-                    (Repeat this step until finalizing option appears)
-                 5) Accept ALL (BE CAREFUL, make sure you agree with all concatenations)
+                 2) Adjust input file
+                 3) Proceed with concatenations
               """)
         if (concat_menu_complete == "1"):
             print("    6) Finalize Curation")
@@ -232,16 +227,9 @@ if (concat_menu == "START"):
         if (concat_menu == "1"):
             molidutils.show_full_conversion(master_molID_class_list, step='concatenation')
         elif (concat_menu == "2"):
-            molidutils.show_unassigned_conversion(master_molID_class_list, step='concatenation')
+            cifcluster.resolve_polymeric_chain_concatenations(master_molID_class_list, projdir)
+            molIDConversion_list = molidutils.add_user_conversion(molIDConversion_list) # Still need to continue from here
         elif (concat_menu == "3"):
-            master_molID_class_list = molidutils.edit_concatenation_interface(master_molID_class_list, action='try')[0]
-        elif (concat_menu == "4"):
-            unassigned_MolID=molidutils.return_unassigned_conversion(master_molID_class_list, step='concatenation')[0]
-            print("This is the concatenation you need to accept:")
-            new_order=None
-            master_molID_class_list = molidutils.list_accept_concatenations(master_molID_class_list, unassigned_MolID, new_order=new_order, action='accept')[0]
-            # Note for tomorrow: here we need to create a new function in molidutils, so we can go over all concatenations!
-        elif (concat_menu == "5"):
             allnewchains=molidutils.return_unassigned_conversion(master_molID_class_list, step='concatenation')
             for newchain in allnewchains:
                 new_order=None

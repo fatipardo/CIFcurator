@@ -1112,15 +1112,13 @@ def problem_counter(master_molID_class_list):
                 count_problems += 1
     return count_problems
 
-def edit_concatenation_interface(master_molID_class_list, new_order=None, action='accept'):
+
+def edit_concatenation_interface(master_molID_class_list, new_order=None):
     """
-    Manages interface for editing or accepting chain ID concatenation.
+    Manages the interface for testing new chain ID concatenations.
 
     Function provides an interactive interface for users to search for
-    entity names, update chain IDs, modify concatenation order, or accept
-    proposed concatenations. Depending on the 'action', the user can
-    try new concatenation scenarios, update the existing concatenation order,
-    or accept the proposed plan.
+    entity names, update chain IDs, and accept or deny proposed changes.
 
     Parameters:
     -----------
@@ -1129,71 +1127,64 @@ def edit_concatenation_interface(master_molID_class_list, new_order=None, action
         and their associated chain IDs.
 
     new_order : str, optional
-        The new chain ID or concatenation order provided by the user, depending
-        on the operation mode. Defaults is None.
-
-    action : str, optional
-        Specifies the type of operation:
-        - 'try' : Allows user to test new chain IDs.
-        - 'update' : Allows user to update the concatenation order.
-        - 'accept' : Allows user to accept the current concatenation plan.
-        Default 'action' is 'accept'.
+        The new chain ID provided by the user. Defaults to None.
 
     Returns:
     --------
     master_molID_class_list : list
-        The updated list of `molID_class` objects after applying the user's
-        modifications.
+        The updated list of `molID_class` objects after applying the
+        user's modifications.
 
     new_order : str
-        The last chain ID or concatenation order input by the user. If no new
-        input was provided, it returns the initial value of `new_order`.
+        The last chain ID input by the user. If no new input was provided,
+        it returns the initial value of `new_order`.
     """
     concat_submenu = 0
-    while(concat_submenu != "QUIT"):
-        search_term, concat_submenu = get_search_term(concat_submenu)
-        if concat_submenu != "QUIT":
-            found_molID_class_chID_map, molID_class_been_copied = search_chains(master_molID_class_list, search_term)
-        while (concat_submenu != "QUIT"):
-            if(action=='try'):
-                print("""Select one of the following options to proceed:
-                         1) Perform new search
-                         2) Update new chain ID
-                         Type 'QUIT' to exit
-                      """)
-            elif(action=='update'):
-                print("""Select one of the following options to proceed:
-                         1) Perform new search
-                         2) Update concatenation order
-                         Type 'QUIT' to exit
-                      """)
-            elif(action=='accept'):
-                print("""Select one of the following options to proceed:
-                         1) Perform new search
-                         2) Accept planned concatenation
-                         Type 'QUIT' to exit
-                      """)
-            concat_submenu = input('Option Number: ')
-            if (concat_submenu == "1"):
-                break
-            elif (concat_submenu == "2"):
-                if(action=='try'):
-                    new_order = input('New Chain ID: ')
-                elif(action=='update'):
-                    new_order = input('New concatenation order: ')
-                found_molID_class_chID_map = edit_chain_order(found_molID_class_chID_map, new_order, action=action)
-                if(action=='try'):
-                    print_conflicts(found_molID_class_chID_map)
-                    print("Would you like to accept or deny these changes?")
-                    while (concat_submenu != "QUIT"):
-                        concat_submenu = input('Enter ACCEPT or DENY: ')
-                        if (concat_submenu == "ACCEPT"):
-                            master_molID_class_list = accept_newchain(master_molID_class_list, found_molID_class_chID_map)
-                        concat_submenu = "QUIT"
 
-                else:
-                    master_molID_class_list = accept_newchain(master_molID_class_list, found_molID_class_chID_map)
+    while concat_submenu != "QUIT":
+        search_term, concat_submenu = get_search_term(concat_submenu)
+        print(search_term)
+        print(concat_submenu)
+
+        if concat_submenu != "QUIT":
+            found_molID_class_chID_map, molID_class_been_copied = search_chains(
+                master_molID_class_list, search_term
+            )
+
+        while concat_submenu != "QUIT":
+            print("""Select one of the following options to proceed:
+                     1) Perform new search
+                     2) Update new chain ID
+                  """)
+
+            concat_submenu = input('Option Number: ')
+
+            if concat_submenu == "1":
+                break
+
+            elif concat_submenu == "2":
+                new_order = input('New Chain ID: ')
+
+                found_molID_class_chID_map = edit_chain_order(
+                    found_molID_class_chID_map,
+                    new_order,
+                    action='try'
+                )
+
+                print_conflicts(found_molID_class_chID_map)
+                print("Would you like to accept or deny these changes?")
+
+                while concat_submenu != "QUIT":
+                    concat_submenu = input('Enter ACCEPT or DENY: ')
+
+                    if concat_submenu == "ACCEPT":
+                        master_molID_class_list = accept_newchain(
+                            master_molID_class_list,
+                            found_molID_class_chID_map
+                        )
+
                     concat_submenu = "QUIT"
+
     return master_molID_class_list, new_order
 
 
