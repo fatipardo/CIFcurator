@@ -76,6 +76,15 @@ def ResnConvert(resn):
     AA["T6A"] = "A"
     AA["U8U"] = "U"
     AA["YG"] = "G"
+    # NOV2026: DNA (before, every DNA residue was X, so all DNA chains of the same length looked the same).
+    # Inosine and unknown nucleotides are N, so the chain is still recognized as a nucleic acid (ACGTUN).
+    AA["DA"]  = "A"
+    AA["DC"]  = "C"
+    AA["DG"]  = "G"
+    AA["DT"]  = "T"
+    AA["DU"]  = "U"
+    AA["DI"]  = "N"
+    AA["DN"]  = "N"
 
     if resn not in AA:
         ans = "X"
@@ -194,6 +203,67 @@ def run_muscle(args):
         raise RuntimeError('muscle was not found: install it (e.g. conda install -c bioconda muscle) '
                            'and make sure it is on the PATH')
 
+# NOV2026: muscle -super5 stops with "usorter.cpp(88) assert failed: L >= m_WordLength" when a sequence
+# is shorter than 8 residues (e.g. a DNA strand with only a few nucleotides modelled); -align does not
+SUPER5_MIN_LENGTH = 8
+
+def run_muscle_msa(sequence_vec, seq_ids, fafile, output):
+    """
+    NOV2026: Writes the multiple sequence alignment of sequence_vec to output, in the format of MUSCLE
+    ('> Seq <id>' headers). Uses muscle -super5, or muscle -align when a sequence is shorter than
+    SUPER5_MIN_LENGTH. MUSCLE crashes on empty sequences and on a single sequence, so empty sequences
+    are left out of MUSCLE and written as all gaps, and with fewer than two non-empty sequences MUSCLE
+    is not run at all.
+
+    Parameters:
+    -----------
+    sequence_vec : list of str
+        The sequences to align, as written in fafile.
+    seq_ids : list of str
+        The identifier of each sequence (header '> Seq <id>').
+    fafile : str
+        The FASTA file with all the sequences (input of MUSCLE when no sequence is empty).
+    output : str
+        The aligned FASTA file to write.
+
+    Returns:
+    --------
+    None
+    """
+    nonempty = [(seq_id, seq) for seq_id, seq in zip(seq_ids, sequence_vec) if len(seq) > 0]
+    empty_ids = [seq_id for seq_id, seq in zip(seq_ids, sequence_vec) if len(seq) == 0]
+
+    if len(nonempty) >= 2:
+        mode = '-super5' if min(len(seq) for _, seq in nonempty) >= SUPER5_MIN_LENGTH else '-align'
+        if mode == '-align':
+            print("Sequences shorter than " + str(SUPER5_MIN_LENGTH) + " residues in " + fafile
+                  + ", so I will use muscle -align instead of -super5")
+        if empty_ids:
+            muscle_input = output + ".in.fa"
+            with open(muscle_input, 'w') as f:
+                for seq_id, seq in nonempty:
+                    f.write("> Seq " + str(seq_id) + "\n" + seq + "\n")
+        else:
+            muscle_input = fafile
+        try:
+            run_muscle([mode, muscle_input, '-output', output])
+        finally:
+            if muscle_input != fafile and os.path.exists(muscle_input):
+                os.remove(muscle_input)
+        with open(output) as f:
+            aligned_length = sum(len(line.strip()) for line in f.read().split('>')[1].split('\n')[1:])
+    else:
+        with open(output, 'w') as f:
+            for seq_id, seq in nonempty:
+                f.write("> Seq " + str(seq_id) + "\n" + seq + "\n")
+        aligned_length = len(nonempty[0][1]) if nonempty else 0
+
+    if empty_ids:
+        print("Empty sequences in " + fafile + ", written as gaps: " + ", ".join(str(i) for i in empty_ids))
+        with open(output, 'a') as f:
+            for seq_id in empty_ids:
+                f.write("> Seq " + str(seq_id) + "\n" + "-" * aligned_length + "\n")
+
 def AlignSequences(sequence_vec):
     """
     Takes a list of sequence strings and performs a MUSCLE alignment,
@@ -273,7 +343,7 @@ def AlignSequenceResNum(sequence_vec, file_name, this_chainsseq_list_ids):
         # FAPA 26AUG2025: muscle -super5. NOV2026: waits for MUSCLE to finish, and writes to a temporary
         # file renamed at the end, so an interrupted run never leaves a partial alignment to be reused
         partial = file_name+".fasta.part"
-        run_muscle(['-super5', file_name+".fa", '-output', partial])
+        run_muscle_msa(sequence_vec, this_chainsseq_list_ids, file_name+".fa", partial)
         os.replace(partial, file_name+".fasta")
 
     else:

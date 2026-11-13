@@ -195,6 +195,12 @@ class TestResnConvert(unittest.TestCase):
         self.assertEqual(alignmentutils.ResnConvert('PSU'), 'U')
         self.assertEqual(alignmentutils.ResnConvert('7MG'), 'G')
 
+    def test_dna(self):
+        # Before NOV2026 DNA residues were X; DNA chains must also be scored as nucleic acids in Step 4
+        dna = ''.join(alignmentutils.ResnConvert(r) for r in ['DG', 'DA', 'DC', 'DT', 'DU', 'DI', 'DN'])
+        self.assertEqual(dna, 'GACTUNN')
+        self.assertLessEqual(set(dna), alignmentutils.NUCLEIC_LETTERS)
+
     def test_unknown_residue_is_X(self):
         self.assertEqual(alignmentutils.ResnConvert('HOH'), 'X')
         self.assertEqual(alignmentutils.ResnConvert('UNK'), 'X')
@@ -312,6 +318,60 @@ class TestPairwiseAlignment(TempDirTestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 alignmentutils.AlignSequenceResNum(['MKV', 'MKL'], name, ['s1', 's2'])
         self.assertFalse(os.path.exists(name + '.fasta'))
+
+    def fake_msa(self, calls):
+        # Pads every sequence with gaps to the longest one, and records the MUSCLE mode and input sequences
+        def fake_muscle(cmd, check):
+            mode, fafile, afafile = cmd[1], cmd[2], cmd[4]
+            with open(fafile) as f:
+                records = [r.split('\n', 1) for r in f.read().split('>')[1:]]
+            calls.append((mode, [seq.strip() for _, seq in records]))
+            width = max(len(seq.strip()) for _, seq in records)
+            with open(afafile, 'w') as f:
+                for header, seq in records:
+                    f.write('>' + header + '\n' + seq.strip().ljust(width, '-') + '\n')
+        return fake_muscle
+
+    def test_msa_uses_super5_for_long_sequences(self):
+        name = os.path.join(self.tmp, 'A')
+        calls = []
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=self.fake_msa(calls)):
+            aligned, _ = alignmentutils.AlignSequenceResNum(['MKVLAAGLLA', 'MKVLAAGLL'], name, ['s1', 's2'])
+        self.assertEqual([mode for mode, _ in calls], ['-super5'])
+        self.assertEqual(aligned, {'s1': 'MKVLAAGLLA', 's2': 'MKVLAAGLL-'})
+
+    def test_msa_short_sequence_uses_align(self):
+        # muscle -super5 crashes on sequences shorter than 8 (assert L >= m_WordLength), e.g. a few nucleotides
+        name = os.path.join(self.tmp, 'Tb')
+        calls = []
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=self.fake_msa(calls)):
+            aligned, _ = alignmentutils.AlignSequenceResNum(['ACGTACGTACGT', 'ACGTACGTACG', 'ACG'], name,
+                                                            ['s1', 's2', 's3'])
+        self.assertEqual([mode for mode, _ in calls], ['-align'])
+        self.assertEqual(aligned['s3'], 'ACG---------')
+        self.assertTrue(os.path.exists(name + '.fasta'))
+        self.assertFalse(os.path.exists(name + '.fasta.part'))
+
+    def test_msa_empty_sequences_are_gaps(self):
+        # MUSCLE crashes on empty sequences: they are left out of MUSCLE and written as all gaps
+        name = os.path.join(self.tmp, 'Tb')
+        calls = []
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=self.fake_msa(calls)):
+            aligned, _ = alignmentutils.AlignSequenceResNum(['ACGTACGTACGT', '', 'ACGTACGTACG'], name,
+                                                            ['s1', 's2', 's3'])
+        self.assertEqual(calls, [('-super5', ['ACGTACGTACGT', 'ACGTACGTACG'])])
+        self.assertEqual(aligned, {'s1': 'ACGTACGTACGT', 's3': 'ACGTACGTACG-', 's2': '------------'})
+        self.assertEqual(sorted(os.listdir(self.tmp)), ['Tb.fa', 'Tb.fasta'])  # all sequences kept in Tb.fa
+        with open(name + '.fa') as f:
+            self.assertEqual(f.read().count('>'), 3)
+
+    def test_msa_single_sequence_skips_muscle(self):
+        # MUSCLE also crashes with only one (non-empty) sequence
+        name = os.path.join(self.tmp, 'A')
+        with mock.patch.object(alignmentutils.subprocess, 'run') as run:
+            aligned, _ = alignmentutils.AlignSequenceResNum(['MKV', ''], name, ['s1', 's2'])
+        run.assert_not_called()
+        self.assertEqual(aligned, {'s1': 'MKV', 's2': '---'})
 
 class TestPdbUtils(TempDirTestCase):
     # As in the wwPDB beta archive pdb_seqres.fasta.gz (extended PDB IDs)
