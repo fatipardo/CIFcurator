@@ -73,6 +73,6 @@ The pipeline work directory is created under `$TMPDIR` with a name that contains
 That is on purpose: it is the regression test for the `.cif` path bug fixed in OCT2026.
 
 Each interactive script runs in its own empty working directory, because Step 5 writes
-`<chain>.fa` and `<chain>.fasta` to the current directory and reuses an existing
+`<chain>.fa` and `<chain>.fasta` (an underscore before each lowercase letter, e.g. `A_b.fasta` for chain Ab, NOV2026) to the current directory and reuses an existing
 `<chain>.fasta`. (NOV2026: Step 4 aligns with Biopython and writes no alignment files.)
 

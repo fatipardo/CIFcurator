@@ -305,6 +305,17 @@ def AlignSequences(sequence_vec):
                     aligned_seq_map[key] += line.strip()
     return [aligned_seq_map[i] for i in range(len(sequence_vec))]
 
+def case_safe_name(file_name):
+    """
+    Return file_name with an underscore before every lowercase letter of its last part, e.g.
+    'Ab' -> 'A_b' and 'AB' -> 'AB'. NOV2026: macOS (and Windows) file names ignore case, so the
+    alignments of chains AB and Ab were both written to (and read from) the same AB.fasta.
+    Chain IDs have only letters and digits, so two chain IDs never give the same name.
+    """
+    folder, name = os.path.split(file_name)
+    return os.path.join(folder, ''.join('_' + c if c.islower() else c for c in name))
+
+
 def AlignSequenceResNum(sequence_vec, file_name, this_chainsseq_list_ids):
     """
     Takes a list of sequence strings and performs a MUSCLE alignment, outputting
@@ -317,7 +328,8 @@ def AlignSequenceResNum(sequence_vec, file_name, this_chainsseq_list_ids):
     sequence_vec : list of str
         list containing sequences from FASTA files
     file_name : str
-        Name given to FASTA file
+        Name given to FASTA file (the chain ID). An underscore is added before every lowercase
+        letter (see case_safe_name), so chain Ab uses A_b.fa and A_b.fasta.
     this_chainsseq_list_ids : list of str
         List of identifiers for each sequence which are also used as headers in the
         FASTA file.
@@ -331,6 +343,8 @@ def AlignSequenceResNum(sequence_vec, file_name, this_chainsseq_list_ids):
         An array where each element represents the percentage of gaps at that position
         across all sequences.
     """
+    chain_name = file_name
+    file_name = case_safe_name(file_name)
     if os.path.exists(file_name+".fasta") == False:
 
         with open(file_name+".fa", 'w') as newfafile:
@@ -373,7 +387,7 @@ def AlignSequenceResNum(sequence_vec, file_name, this_chainsseq_list_ids):
     for item in (aligned_seq_map.keys()):
         aligned_seq.append(aligned_seq_map[item])
 
-    print(file_name)
+    print(chain_name)
 
     sequences = read_fasta_files( file_name + ".fasta")
     gap_percentages = calculate_gap_percentages(sequences)

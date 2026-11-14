@@ -311,7 +311,7 @@ class TestPairwiseAlignment(TempDirTestCase):
                 alignmentutils.run_muscle(['-version'])
 
     def test_failed_msa_leaves_no_alignment_to_reuse(self):
-        # Step 5 reuses an existing <chain>.fasta, so a failed MUSCLE run must not leave one behind
+        # Step 5 reuses an existing <chain>.fasta (A_b.fasta for chain Ab), so a failed MUSCLE run must not leave one behind
         name = os.path.join(self.tmp, 'A')
         failed = subprocess.CalledProcessError(1, ['muscle'])
         with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=failed):
@@ -349,8 +349,8 @@ class TestPairwiseAlignment(TempDirTestCase):
                                                             ['s1', 's2', 's3'])
         self.assertEqual([mode for mode, _ in calls], ['-align'])
         self.assertEqual(aligned['s3'], 'ACG---------')
-        self.assertTrue(os.path.exists(name + '.fasta'))
-        self.assertFalse(os.path.exists(name + '.fasta.part'))
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, 'T_b.fasta')))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'T_b.fasta.part')))
 
     def test_msa_empty_sequences_are_gaps(self):
         # MUSCLE crashes on empty sequences: they are left out of MUSCLE and written as all gaps
@@ -361,9 +361,29 @@ class TestPairwiseAlignment(TempDirTestCase):
                                                             ['s1', 's2', 's3'])
         self.assertEqual(calls, [('-super5', ['ACGTACGTACGT', 'ACGTACGTACG'])])
         self.assertEqual(aligned, {'s1': 'ACGTACGTACGT', 's3': 'ACGTACGTACG-', 's2': '------------'})
-        self.assertEqual(sorted(os.listdir(self.tmp)), ['Tb.fa', 'Tb.fasta'])  # all sequences kept in Tb.fa
-        with open(name + '.fa') as f:
+        self.assertEqual(sorted(os.listdir(self.tmp)), ['T_b.fa', 'T_b.fasta'])  # all sequences kept in T_b.fa
+        with open(os.path.join(self.tmp, 'T_b.fa')) as f:
             self.assertEqual(f.read().count('>'), 3)
+
+    def test_case_safe_name(self):
+        self.assertEqual(alignmentutils.case_safe_name('Ab'), 'A_b')
+        self.assertEqual(alignmentutils.case_safe_name('AB'), 'AB')
+        self.assertEqual(alignmentutils.case_safe_name('A1b'), 'A1_b')
+        self.assertEqual(alignmentutils.case_safe_name(os.path.join('Some', 'Ab')), os.path.join('Some', 'A_b'))
+
+    def test_msa_chains_differing_only_in_case(self):
+        # NOV2026: on macOS AB.fasta and Ab.fasta are the same file, so chain Ab reused the alignment of chain AB
+        # (other structures) and Step 5 crashed with a KeyError
+        calls = []
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=self.fake_msa(calls)):
+            first, _ = alignmentutils.AlignSequenceResNum(['MKVLAAGLLA', 'MKVLAAGLL'],
+                                                          os.path.join(self.tmp, 'AB'), ['s1', 's2'])
+            second, _ = alignmentutils.AlignSequenceResNum(['GGSSGGSSGG', 'GGSSGGSSG'],
+                                                           os.path.join(self.tmp, 'Ab'), ['s3', 's4'])
+        self.assertEqual(len(calls), 2)  # the second chain was aligned, not read from AB.fasta
+        self.assertEqual(sorted(first), ['s1', 's2'])
+        self.assertEqual(sorted(second), ['s3', 's4'])
+        self.assertEqual(sorted(f for f in os.listdir(self.tmp) if f.endswith('.fasta')), ['AB.fasta', 'A_b.fasta'])
 
     def test_msa_single_sequence_skips_muscle(self):
         # MUSCLE also crashes with only one (non-empty) sequence
