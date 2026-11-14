@@ -1,4 +1,4 @@
-#!/Users/fatima/anaconda3/envs/PDBCleanV2/bin/python
+#!/Applications/anaconda3/envs/CIFcurator/bin/python3.14
 # coding: utf-8
 #
 # ! ! ! master_molID_class_list is very important
@@ -12,7 +12,10 @@ r"""Step 3 of CIFcurator: assign the chain IDs of the entities (MolIDs) found in
 
 Reads every .cif file in source_dir, lists the entities (MolIDs) found in them, and asks
 you to give each entity a new chain ID for every copy of it. The rewritten CIF files are
-saved in target_dir. The script is interactive: it shows a menu and asks for options.
+saved in target_dir. Before the menu appears, the sequences of the entities are taken from
+the PDB sequence file (seqfile, default projdir/seqres.txt) and clustered with MMseqs2
+(mmseqs must be on your PATH); the results are saved in projdir/clustering_storage/.
+The script is interactive: it shows a menu and asks for options.
 
 Conversion Build Menu:
   1) Show full conversion
@@ -22,18 +25,14 @@ Conversion Build Menu:
   3) Enter input file
          Read the chain IDs from a file with one entity per line, in the format
          ENTITY NAME:chainID,chainID,...   for example   WATER:F,G
-  4) Search MolID to add chain ID conversion
-         Search for an entity by name and add chain IDs to it.
-  5) Go entry by entry to add chain ID conversion
-         Ask for the chain IDs of every entity, one by one.
-  6) Remove a chain ID conversion
-         Search for an entity by name and remove chain IDs from it.
-  A) Track changes
-         Write OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
-         (original_chain_names:new_chain_names:entity_name:number_of_files:file_name).
+  4) Generate input file
+         Propose chain IDs from the MMseqs2 clusters and write them to
+         projdir/input_file.txt, in the format read by option 3. Nothing is assigned
+         yet: review or edit the file, then enter it with option 3.
   7) Continue to next step of curation
-         Shown once every entity has all its chain IDs.
-  QUIT   Exit without writing CIF files.
+         Shown once every entity has all its chain IDs. Writes
+         OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
+         (original_chain_names:new_chain_names:entity_name:number_of_files:file_name).
 
 After option 7, if no two entities share a chain ID, option 6) Finalize Curation writes the
 CIF files to target_dir. Otherwise the Concatenations Menu appears: entities with the same
@@ -43,15 +42,20 @@ chain ID will be concatenated into one chain, and each concatenation must be acc
   3) Search and modify destination chainIDs of proposed concatenations
   4) Accept proposed concatenation one by one
   5) Accept ALL (make sure you agree with all concatenations)
-  6) Finalize Curation
+  6) Finalize Curation (shown once every concatenation is accepted)
+
+Type QUIT at any menu to exit without writing CIF files.
 
 The answers can also be given on standard input, for example:
-  printf '3\nTIM_input_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank
+  printf '4\n3\ninput_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank .
+or, with the sequence file in another directory:
+  printf '4\n3\ninput_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank . /path/to/seqres.txt
 """
 
 from __future__ import print_function
 import argparse, glob
 from CIFcurator import cifcuratormolidcifutils as molidutils
+from CIFcurator import cifcluster
 
 
 ########################
@@ -62,16 +66,24 @@ parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument('source_dir', help='Directory with the input CIF files (for example, the output of Step 1, CIFcurator_Download.py)')
 parser.add_argument('target_dir', help='Directory where the new CIF files are saved')
+parser.add_argument('projdir', nargs='?', default='.',
+                    help='Project directory, where clustering_storage/ and input_file.txt are written (default: current directory)')
+parser.add_argument('seqfile', nargs='?', default=None,
+                    help='File with the sequences of all the structures in the PDB (default: {projdir}/seqres.txt)')
 args = parser.parse_args()
 source_dir = args.source_dir
 target_dir = args.target_dir
+projdir = args.projdir
+seqfile = args.seqfile if args.seqfile is not None else projdir+'/seqres.txt'
 
 
 #########################################
 # READ PDB FILES AND DEFINE MolID LISTS #
 #########################################
-
 filelist=glob.glob(source_dir+'/*.cif')
+cifcluster.run_clustering_pipeline(filelist, projdir, seqfile)
+cluster_pdbchids, outlier_case_entries = cifcluster.finding_problematic_cluster_results(f"{projdir}/clustering_storage/")
+
 master_molID_class_list = molidutils.pdb_to_masterlist(filelist)
 unique_molID_occur_map  = molidutils.CreateMasterUniqueMolIDMap(master_molID_class_list)
 molIDConversion_list    = molidutils.uniquelist_to_conversionlist(unique_molID_occur_map)
@@ -86,6 +98,7 @@ MolID_ChainID_dict_of_lists = molidutils.CreateMasterUniqueMolIDinitialChainIDsL
 # Goal:
 # users complete their molID conversion templates by ensuring that each member of
 # molIDConversion_list has status complete = True
+final_chain_set = None
 input_menu = ""
 input_menu_complete = ""
 # For use in the next section
@@ -104,10 +117,7 @@ while(input_menu != "QUIT"):
              1) Show full conversion
              2) Show only unassigned conversions
              3) Enter input file
-             4) Search MolID to add chain ID conversion
-             5) Go entry by entry to add chain ID conversion
-             6) Remove a chain ID conversion
-             A) Track changes (original_chain_name:new_chain:entity:file_name)
+             4) Generate input file
           """)
     if (input_menu_complete == "1"):
         print("    7) Continue to next step of curation")
@@ -119,16 +129,15 @@ while(input_menu != "QUIT"):
     elif (input_menu == "3"):
         molIDConversion_list = molidutils.add_user_conversion(molIDConversion_list)
     elif (input_menu == "4"):
-        molIDConversion_list = molidutils.edit_conversion_interface(molIDConversion_list, action='add')#FAPA
-    elif (input_menu == "5"):
-        molIDConversion_list = molidutils.edit_conversion_manual(molIDConversion_list)
-    elif (input_menu == "6"):
-        molIDConversion_list = molidutils.edit_conversion_interface(molIDConversion_list, action='remove')
-    elif (input_menu == "A"):
-        molidutils.show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_lists,molIDConversion_list, MolID_to_files_map,
-                                                                       MolID_occur_dict_of_lists, target_dir)
+        final_chain_set = cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list,
+                                                                cluster_pdbchids, outlier_case_entries, projdir)
     elif (input_menu == "7"):
         if (input_menu_complete == "1"):
+            print("Saving 'Track changes' to output directory")
+            molidutils.show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_lists,
+                                                                           molIDConversion_list, MolID_to_files_map,
+                                                                           MolID_occur_dict_of_lists, target_dir)
+
             master_molID_class_list = molidutils.update_masterlist(master_molID_class_list, molIDConversion_list)
             count_problems = molidutils.problem_counter(master_molID_class_list)
             if (count_problems == 0):
@@ -196,12 +205,8 @@ if (concat_menu == "START"):
                   """)
         print("""CIFcurator Concatenations Menu
                  -------------------------------
-                 This menu appeared because you have assigned the same chain name to two (or more) entities.
-                 Note that this will concatenate the entities. So you need to either re-assign chain names,
-                 or ACCEPT concatenations.
-
-                 Note: All proposed concatenations must be accepted (by running option 4 or 5) before the curation can
-                 be completed.
+                 This menu appeared because there has been one or more instances of the same chain being assigned to multiple entities.
+                 Note that this will concatenate the entities. We have re-written the input file to accommodate for this situation.
 
                  Before you do anything, we suggest to choose option 2, so you know which concatenations have not
                  been accepted. It will also give you the proper format of the input for option 3.
@@ -211,11 +216,8 @@ if (concat_menu == "START"):
 
                  Select one of the following options to proceed:
                  1) Show all conversions
-                 2) Show only unaccepted concatenations
-                 3) Search and modify destination chainIDs of proposed concatenations
-                 4) Accept proposed concatenation one by one
-                    (Repeat this step until finalizing option appears)
-                 5) Accept ALL (BE CAREFUL, make sure you agree with all concatenations)
+                 2) Adjust input file
+                 3) Proceed with concatenations
               """)
         if (concat_menu_complete == "1"):
             print("    6) Finalize Curation")
@@ -225,20 +227,13 @@ if (concat_menu == "START"):
         if (concat_menu == "1"):
             molidutils.show_full_conversion(master_molID_class_list, step='concatenation')
         elif (concat_menu == "2"):
-            molidutils.show_unassigned_conversion(master_molID_class_list, step='concatenation')
+            cifcluster.resolve_polymeric_chain_concatenations(master_molID_class_list, projdir)
+            molIDConversion_list = molidutils.add_user_conversion(molIDConversion_list) # Still need to continue from here
         elif (concat_menu == "3"):
-            master_molID_class_list = molidutils.edit_concatenation_interface(master_molID_class_list, action='try')[0]
-        elif (concat_menu == "4"):
-            unassigned_MolID=molidutils.return_unassigned_conversion(master_molID_class_list, step='concatenation')[0]
-            print("This is the concatenation you need to accept:")
-            new_order=None
-            master_molID_class_list = molidutils.list_accept_concatenations(master_molID_class_list, unassigned_MolID, new_order=new_order, action='accept')[0]
-            # Note for tomorrow: here we need to create a new function in molidutils, so we can go over all concatenations!
-        elif (concat_menu == "5"):
             allnewchains=molidutils.return_unassigned_conversion(master_molID_class_list, step='concatenation')
             for newchain in allnewchains:
                 new_order=None
-                master_molID_class_list = molidutils.list_accept_concatenations_auto(master_molID_class_list, newchain, new_order=new_order, action='accept')[0]
+                master_molID_class_list = molidutils.list_accept_concatenations_auto(master_molID_class_list, newchain, new_order=new_order)[0]
             count_problems = molidutils.problem_counter(master_molID_class_list)
             print(count_problems)
         elif (concat_menu == "6"):

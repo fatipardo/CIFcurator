@@ -11,7 +11,7 @@ set of long-established TIM entries is still found, downloads only those, and ru
 Steps 2-5 on the freshly downloaded files. This checks that the code still works
 with what the PDB serves today.
 
-Requirements: network access, and `muscle` (v5) on PATH (Steps 4 and 5).
+Requirements: network access, `mmseqs` (MMseqs2) on PATH (Step 3, NOV2026), and `muscle` (v5) on PATH (Steps 4 and 5).
 pdb_seqres.fasta (~410 MB) is cached in tests/.cache and re-downloaded after 30 days;
 see _support.py for the environment variables that control this.
 
@@ -136,10 +136,14 @@ class Pipeline:
             if not os.path.basename(f).startswith(OUTLIER):
                 shutil.copy(f, self.path('clean_bank_sub'))
         os.mkdir(self.path('standard_MolID_bank'))
-        # 3 = enter input file, A = write track-changes CSV, 7 = continue, 6 = finalize
+        # NOV2026 (PR #240): Step 3 clusters the chains with MMseqs2 when it starts, using the sequences in
+        # <project_dir>/seqres.txt, where CIFcurator_Download.py saves pdb_seqres.fasta by default.
+        os.symlink(self.seqfile, self.path('seqres.txt'))
+        # 4 = generate input file (<project_dir>/input_file.txt), 3 = enter the tutorial input file,
+        # 7 = continue (NOV2026: also writes the track-changes CSV, option A is gone), 6 = finalize
         self.run_script('step3', 'CIFcurator_MolID.py',
-                        [self.path('clean_bank_sub'), self.path('standard_MolID_bank')],
-                        '3\n{0}\nA\n7\n6\n'.format(MOLID_INPUT))
+                        [self.path('clean_bank_sub'), self.path('standard_MolID_bank'), self.root],
+                        '4\n3\n{0}\n7\n6\n'.format(MOLID_INPUT))
 
     def run_step4(self):
         os.mkdir(self.path('standard_ChainID_bank'))
@@ -161,6 +165,8 @@ PIPELINE = Pipeline()
 
 def setUpModule():
     _support.quiet_known_warnings()
+    if not _support.SKIP_NETWORK and shutil.which('mmseqs') is None:
+        print('\nWARNING: mmseqs not found on PATH; Steps 3-5 will fail.', file=sys.stderr)
     if not _support.SKIP_NETWORK and shutil.which('muscle') is None:
         print('\nWARNING: muscle not found on PATH; Steps 4 and 5 will fail.', file=sys.stderr)
 
@@ -301,6 +307,94 @@ class TestStep3MolID(unittest.TestCase):
 
     def test_consistent_with_mmcif_dictionary(self):
         assert_consistent(self, 'standard_MolID_bank')
+
+
+class TestStep3Clustering(unittest.TestCase):
+    """
+    NOV2026 (PR #240): Step 3 clusters the polymer chains of the input structures with MMseqs2, and option 4
+    writes an input file from the clusters, which users can edit and then enter with option 3.
+    """
+    @classmethod
+    def setUpClass(cls):
+        PIPELINE.require('step3')
+        cls.storage = PIPELINE.path('clustering_storage')
+        with PIPELINE.log('step3_clustering.log'):
+            master = molidutils.pdb_to_masterlist(glob.glob(PIPELINE.path('clean_bank_sub', '*.cif')))
+        # Most copies of each entity in one file: the number of chain IDs it needs
+        cls.occur = {c.molID: c.occur for c in molidutils.uniquelist_to_conversionlist(
+            molidutils.CreateMasterUniqueMolIDMap(master))}
+        cls.polymers = {m.entity_name_map[e] for m in master for e, t in m.entity_type_map.items() if t == 'polymer'}
+        cls.generated = molidutils.read_input_file(PIPELINE.path('input_file.txt'))
+
+    def test_only_the_input_structures_are_clustered(self):
+        with open(os.path.join(self.storage, 'sub_seqres.txt')) as f:
+            ids = {line[1:13].lower() for line in f if line.startswith('>')}
+        self.assertEqual(ids, set(PDB_IDS) - {OUTLIER})
+
+    def test_proteins_only(self):
+        self.assertTrue(os.path.isfile(os.path.join(self.storage, 'PROTEIN_clustering_storage', 'clusters.tsv')))
+        self.assertFalse(os.path.exists(os.path.join(self.storage, 'RNA_DNA_clustering_storage')))
+
+    def test_tim_chains_of_every_structure_in_one_cluster(self):
+        # 1btm is from another organism, and 2y62 names the entity differently
+        files = glob.glob(os.path.join(self.storage, 'PROTEIN_clustering_storage', 'cluster_files', '*_cluster.txt'))
+        self.assertEqual(len(files), 1, files)
+
+    def test_no_warnings(self):
+        self.assertEqual(glob.glob(os.path.join(self.storage, '*_warning.csv')), [])
+
+    def test_generated_input_file_has_one_chain_id_per_copy(self):
+        self.assertEqual({e: len(c) for e, c in self.generated.items()}, self.occur)
+
+    def test_generated_input_file_names_polymer_copies_ab_ac(self):
+        # NOV2026 (a150fb0): the polymers of one cluster that are not in the same file share the base chain and
+        # its copies: TIM:A,Ab and TIM SYNONYM ...:A,Ab (5f14e4f, reverted, gave the second one Ac,Ad)
+        for entity in self.polymers:
+            chains = self.generated[entity]
+            self.assertEqual(chains, [chains[0] + c for c in [''] + list(string.ascii_lowercase[1:])][:len(chains)])
+
+    def test_generated_input_file_gives_same_chain_to_same_cluster(self):
+        # Both TIM entity names get the same base chain; every other entity gets its own
+        base = {e: c[0].rstrip(string.ascii_lowercase) for e, c in self.generated.items()}
+        tim = {base[e] for e in self.polymers}
+        self.assertEqual(len(tim), 1)
+        others = [c for e, c in base.items() if e not in self.polymers]
+        self.assertEqual(len(set(others)), len(others))
+        self.assertNotIn(tim.pop(), others)
+
+
+class TestStep3GeneratedInputFile(unittest.TestCase):
+    """
+    NOV2026 (PR #240): Step 3 again, now entering the input file that option 4 generated. It gives every copy of
+    a ligand in a file the same chain ID, so the copies are concatenated: 5 = accept all concatenations.
+    """
+    @classmethod
+    def setUpClass(cls):
+        PIPELINE.require('step3')
+        cls.bank = 'standard_MolID_bank_generated'
+        os.mkdir(PIPELINE.path(cls.bank))
+        cls.generated = molidutils.read_input_file(PIPELINE.path('input_file.txt'))
+        # 3 = enter input file, 7 = continue, 5 = accept all concatenations, 6 = finalize
+        PIPELINE.run_script('step3_generated', 'CIFcurator_MolID.py',
+                            [PIPELINE.path('clean_bank_sub'), PIPELINE.path(cls.bank), PIPELINE.root],
+                            '3\n{0}\n7\n5\n6\n'.format(PIPELINE.path('input_file.txt')))
+
+    def test_outputs(self):
+        self.assertEqual(cif_files(self.bank), cif_files('standard_MolID_bank'))
+
+    def test_chain_ids_come_from_the_assignment(self):
+        allowed = {c for chains in self.generated.values() for c in chains}
+        for name in cif_files(self.bank):
+            with self.subTest(structure=name):
+                (asym,) = _support.cif_columns(PIPELINE.path(self.bank, name + '.cif'), '_atom_site.label_asym_id')
+                self.assertLessEqual(set(asym), allowed)
+
+    def test_keeps_every_atom(self):
+        for name in cif_files(self.bank):
+            with self.subTest(structure=name):
+                (before,) = _support.cif_columns(PIPELINE.path('clean_bank_sub', name + '.cif'), '_atom_site.id')
+                (after,) = _support.cif_columns(PIPELINE.path(self.bank, name + '.cif'), '_atom_site.id')
+                self.assertEqual(len(after), len(before))
 
 
 class TestStep4ChainID(unittest.TestCase):
