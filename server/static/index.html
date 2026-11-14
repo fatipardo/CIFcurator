@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CIFcurator server</title>
+<style>
+  /* Stanford identity colors (identity.stanford.edu/design-elements/color):
+     Cardinal Red header; Digital Red for buttons and alerts, Digital Blue for links,
+     Digital Green for success; Black, Cool Grey, Fog and Stone for text, lines and backgrounds. */
+  :root { --fg:#2E2D29; --muted:#53565A; --line:#D4D1D1; --bg:#F4F4F4; --card:#fff;
+          --cardinal:#8C1515; --accent:#B1040E; --accent-dark:#820000;
+          --link:#006CB8; --link-dark:#00548f;
+          --ok:#006F54; --bad:#820000; --run:#5D4B3C; --poppy:#E98300; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 "Source Sans 3", "Source Sans Pro", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--fg); background:var(--bg); }
+  header { background:var(--cardinal); color:#fff; padding:18px 24px; border-bottom:4px solid var(--accent-dark); }
+  header h1 { margin:0; font-size:22px; }
+  main { max-width:900px; margin:24px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:20px; margin-bottom:20px; }
+  h2 { font-size:17px; margin:0 0 14px; }
+  label { display:block; font-weight:600; margin:14px 0 4px; }
+  .hint { color:var(--muted); font-size:13px; font-weight:normal; margin:2px 0 0; }
+  input[type=text], input[type=number] { width:100%; padding:8px 10px; font:inherit; border:1px solid var(--line); border-radius:6px; }
+  input[type=number] { width:120px; }
+  textarea { width:100%; padding:8px 10px; font:13px/1.4 ui-monospace, Menlo, Consolas, monospace; border:1px solid var(--line); border-radius:6px; }
+  .steps .summary { color:var(--muted); font-size:13px; }
+  label.check { font-weight:600; display:flex; gap:8px; align-items:center; }
+  .warn { background:#FFF4C7; color:var(--run); border-left:3px solid var(--poppy); padding:6px 10px; font-size:13px; margin:6px 0 0; }
+  details { margin-top:14px; }
+  summary { cursor:pointer; font-weight:600; }
+  button, .button { display:inline-block; background:var(--accent); color:#fff; border:0; border-radius:6px; padding:9px 18px;
+           font:inherit; font-weight:600; cursor:pointer; text-decoration:none; }
+  button:not(:disabled):hover, .button:hover, button:focus-visible, .button:focus-visible { background:var(--accent-dark); }
+  button.secondary { background:#DAD7CB; color:var(--fg); }
+  button.secondary:not(:disabled):hover { background:#B6B1A9; }
+  a { color:var(--link); } a:hover, a:focus-visible { color:var(--link-dark); }
+  a.button, a.button:hover { color:#fff; }
+  input:focus, textarea:focus { outline:2px solid var(--link); outline-offset:-1px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .actions { margin-top:18px; display:flex; gap:10px; align-items:center; }
+  .error { color:var(--bad); white-space:pre-wrap; }
+  ol.steps { list-style:none; padding:0; margin:0; }
+  ol.steps li { padding:6px 0; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:baseline; }
+  ol.steps li:last-child { border-bottom:0; }
+  .badge { font-size:12px; font-weight:700; text-transform:uppercase; border-radius:4px; padding:1px 7px; min-width:72px; text-align:center; }
+  .pending { background:#EBEAE6; color:var(--muted); } .running, .queued { background:#FFF4C7; color:var(--run); }
+  .done { background:#E3F2EC; color:var(--ok); } .failed, .cancelled { background:#F9E3E3; color:var(--bad); }
+  .skipped { background:#EBEAE6; color:var(--muted); }
+  .steps .time { color:var(--muted); font-size:13px; margin-left:auto; }
+  .steps a { font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); }
+  td a { cursor:pointer; }
+  code { background:#EBEAE6; padding:0 4px; border-radius:3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CIFcurator</h1>
+</header>
+<main>
+
+<section class="card">
+  <h2>New curation</h2>
+  <form id="form">
+    <label for="keyword">Keyword</label>
+    <input type="text" id="keyword" name="keyword" placeholder="e.g. triosephosphate isomerase" required maxlength="200">
+    <p class="hint">Searched in the descriptions of the PDB sequences (plain text, not case sensitive). Every structure with a chain whose sequence matches one of the hits is downloaded.</p>
+
+    <label class="check"><input type="checkbox" id="csm" name="csm"> Include computed structure models (AlphaFold DB)</label>
+    <p class="hint">Also downloads the computed models that RCSB PDB finds for the keyword (full text search), next to the experimental structures.</p>
+    <div id="csm-options" hidden>
+      <p class="warn">A computed model has <b>one protein chain only</b>: no nucleic acids, ligands, waters or other copies of the protein
+        (e.g. a homodimer is modelled as a monomer). It covers the full UniProt sequence, signal peptides included, and its B-factor column holds pLDDT.</p>
+      <label for="max_models">Maximum number of computed models</label>
+      <input type="number" id="max_models" name="max_models" min="1" max="1000" placeholder="all">
+      <p class="hint">Best matches first. Leave blank to download all of them.</p>
+    </div>
+
+    <details>
+      <summary>Advanced Options</summary>
+      <label for="threshold">Occupancy threshold for residue renumbering (Step 5)</label>
+      <input type="number" id="threshold" name="threshold" min="1" max="100" value="80">
+      <p class="hint">Residue columns present in at most this percentage of the structures are numbered with letters (insertion codes). Default 80.</p>
+
+      <label for="input_file">Input file for chain names (Step 3)</label>
+      <input type="file" id="input_file" name="input_file" accept=".txt,text/plain">
+      <p class="hint">One entity per line, <code>ENTITY NAME:chainID,chainID,...</code> (one chain ID per copy), e.g. <code>TRIOSEPHOSPHATE ISOMERASE:A,Ab</code>.
+        Without it, the chains are named from the MMseqs2 clusters, and the generated <code>input_file.txt</code> is in the zip file: download it, edit it and upload it here to change the names.</p>
+
+      <label for="reference_json">Reference sequences (Step 4)</label>
+      <input type="file" id="reference_json" name="reference_json" accept=".json,application/json">
+      <p class="hint">A JSON file <code>{"chain ID": "sequence", ...}</code>, like the <code>StandardSequences.json</code> written by Step 4 (in <code>standard_ChainID_bank/</code> of the zip file).
+        Without it, the Standard Sequences are the consensus of all the structures.</p>
+
+      <label for="exclude">Structures to leave out (Steps 3-5)</label>
+      <textarea id="exclude" name="exclude" rows="4" placeholder="e.g.&#10;1abc&#10;pdb_00002xyz+01.cif&#10;AF-P00780-F1+01.cif"></textarea>
+      <input type="file" id="exclude_file" name="exclude_file" accept=".txt,text/plain">
+      <p class="hint">Downloaded structures that should not be curated. Type them in the box and/or upload a text file: one or more per line, separated by spaces or commas (<code>#</code> starts a comment).
+        Give a file name of <code>clean_bank/</code> (<code>pdb_00001abc+01.cif</code>, with or without <code>.cif</code>), or a PDB ID (<code>1abc</code>) or entry (<code>pdb_00001abc</code>, <code>AF-P00780-F1</code>) to leave out all its assemblies.
+        They stay in <code>clean_bank/</code>, and <code>excluded_structures.txt</code> in the zip file lists what was left out and the names that matched nothing.
+        Without a list, all the structures are curated.</p>
+    </details>
+
+    <div class="actions">
+      <button type="submit" id="submit">Run curation</button>
+      <span id="form-error" class="error"></span>
+    </div>
+  </form>
+</section>
+
+<section class="card" id="job-card" hidden>
+  <h2 id="job-title">Job</h2>
+  <p id="job-summary" class="hint"></p>
+  <ol class="steps" id="steps"></ol>
+  <p id="job-error" class="error"></p>
+  <div class="actions">
+    <a class="button" id="download" hidden>Download zip file</a>
+    <button class="secondary" id="cancel" hidden>Cancel</button>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Recent jobs</h2>
+  <table>
+    <thead><tr><th>Keyword</th><th>Submitted</th><th>State</th><th></th></tr></thead>
+    <tbody id="jobs"><tr><td colspan="4" class="hint">No jobs yet.</td></tr></tbody>
+  </table>
+</section>
+
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let currentJob = null, timer = null;
+
+function fmtTime(t) { return t ? new Date(t * 1000).toLocaleString() : ''; }
+function fmtDuration(s) {
+  if (s == null) return '';
+  s = Math.round(s);
+  return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + (s % 60) + ' s';
+}
+function el(tag, attrs = {}, text = '') {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text) e.textContent = text;
+  return e;
+}
+
+$('form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  $('form-error').textContent = '';
+  $('submit').disabled = true;
+  try {
+    const res = await fetch('/api/jobs', {method: 'POST', body: new FormData($('form'))});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    showJob(data.id);
+    loadJobs();
+  } catch (err) {
+    $('form-error').textContent = err.message;
+  } finally {
+    $('submit').disabled = false;
+  }
+});
+
+$('csm').addEventListener('change', () => { $('csm-options').hidden = !$('csm').checked; });
+
+$('cancel').addEventListener('click', async () => {
+  if (!currentJob || !confirm('Cancel this job?')) return;
+  await fetch('/api/jobs/' + currentJob + '/cancel', {method: 'POST'});
+  refresh();
+});
+
+function showJob(id) {
+  currentJob = id;
+  history.replaceState(null, '', '#' + id);
+  $('job-card').hidden = false;
+  refresh();
+}
+
+async function refresh() {
+  clearTimeout(timer);
+  if (!currentJob) return;
+  let job;
+  try {
+    const res = await fetch('/api/jobs/' + currentJob);
+    job = await res.json();
+    if (!res.ok) throw new Error(job.error);
+  } catch (err) {
+    $('job-error').textContent = 'Cannot reach the server: ' + err.message;
+    timer = setTimeout(refresh, 5000);
+    return;
+  }
+  renderJob(job);
+  if (job.state === 'queued' || job.state === 'running') timer = setTimeout(refresh, 3000);
+  else loadJobs();
+}
+
+function renderJob(job) {
+  $('job-title').textContent = 'Job: ' + job.keyword;
+  let summary = 'Submitted ' + fmtTime(job.submitted) + ' · threshold ' + job.threshold +
+    ' · computed models: ' + (job.csm ? (job.max_models ? 'up to ' + job.max_models : 'all') : 'no') +
+    ' · chain names: ' + (job.input_file ? 'your input file' : 'automatic (MMseqs2 clusters)') +
+    ' · reference sequences: ' + (job.reference_json ? 'your JSON file' : 'automatic (consensus)') +
+    ' · structures left out: ' + (job.exclude && job.exclude.length ? job.exclude.length + ' name(s) given' : 'none');
+  if (job.state === 'queued') summary += ' · waiting, position ' + job.queue_position + ' in the queue';
+  if (job.state === 'running' && job.seqfile_stale)
+    summary += ' · downloading the PDB sequence file of this week\'s PDB release (~400 MB): this takes a few minutes';
+  $('job-summary').textContent = summary;
+
+  const steps = $('steps');
+  steps.replaceChildren();
+  for (const s of job.steps) {
+    const li = el('li');
+    li.append(el('span', {class: 'badge ' + s.state}, s.state), el('span', {}, s.title));
+    if (s.summary) li.append(el('span', {class: 'summary'}, '(' + s.summary + ')'));
+    if (s.state !== 'pending' && s.state !== 'skipped' && s.key !== 'zip') {
+      const a = el('a', {href: '/api/jobs/' + job.id + '/log/' + s.key, target: '_blank'}, 'log');
+      li.append(' ', a);
+    }
+    const end = s.finished || (s.state === 'running' ? Date.now() / 1000 : null);
+    if (s.started && end) li.append(el('span', {class: 'time'}, fmtDuration(end - s.started)));
+    steps.append(li);
+  }
+  $('job-error').textContent = (job.state === 'failed' || job.state === 'cancelled') ? (job.error || job.state) : '';
+  $('download').hidden = !job.zip_ready;
+  $('download').href = '/api/jobs/' + job.id + '/download';
+  $('download').textContent = job.state === 'done' ? 'Download zip file' : 'Download zip file (partial results)';
+  $('cancel').hidden = !(job.state === 'queued' || job.state === 'running');
+}
+
+async function loadJobs() {
+  const res = await fetch('/api/jobs');
+  const data = await res.json();
+  const body = $('jobs');
+  body.replaceChildren();
+  if (!data.jobs.length) {
+    const tr = el('tr'); tr.append(el('td', {colspan: 4, class: 'hint'}, 'No jobs yet.')); body.append(tr);
+    return;
+  }
+  for (const job of data.jobs) {
+    const tr = el('tr');
+    const open = el('a', {}, job.keyword);
+    open.addEventListener('click', () => showJob(job.id));
+    const name = el('td'); name.append(open);
+    const state = el('td'); state.append(el('span', {class: 'badge ' + job.state}, job.state));
+    const dl = el('td');
+    if (job.zip_ready) dl.append(el('a', {href: '/api/jobs/' + job.id + '/download'}, 'zip'));
+    tr.append(name, el('td', {}, fmtTime(job.submitted)), state, dl);
+    body.append(tr);
+  }
+}
+
+loadJobs();
+if (location.hash.length > 1) showJob(location.hash.slice(1));
+</script>
+</body>
+</html>
