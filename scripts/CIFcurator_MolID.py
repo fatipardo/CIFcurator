@@ -87,12 +87,8 @@ MolID_ChainID_dict_of_lists = molidutils.CreateMasterUniqueMolIDinitialChainIDsL
 #####################################
 # INTERACTIVE MOLID CONVERSION MENU #
 #####################################
-# Goal:
-# users complete their molID conversion templates by ensuring that each member of
-# molIDConversion_list has status complete = True
 input_menu = ""
 input_menu_complete = ""
-# For use in the next section
 final_menu=""
 
 while(input_menu != "QUIT"):
@@ -141,11 +137,6 @@ while(input_menu != "QUIT"):
             input_menu = "QUIT"
             final_menu = "START"
     input_menu_complete = molidutils.check_complete(molIDConversion_list)
-
-#########################################
-# New menu to finalize without printing #
-# concatenation menu                    #
-#########################################
 
 if (final_menu == "START"):
 
