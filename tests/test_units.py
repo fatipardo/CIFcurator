@@ -934,6 +934,21 @@ class TestStepsKeepFilesConsistent(TempDirTestCase):
                          ['_pdbx_poly_seq_scheme chain C entity 2 not in _struct_asym'] * 3 +
                          ['chain C: atoms in entity 2, _struct_asym says 1'] * 3)
 
+    def test_step4_progress_is_one_line_per_chain(self):
+        # NOV2026: "Chain B: 2 of 2 done", not the whole list of chains already completed after every chain
+        # (the log grew with the square of the number of chains: 5.8 GB for 828 chains)
+        seqs = [{'A': 'AG', 'B': 'SKW'}]  # the residues of chains A and B in the file
+        standard = {'A': 'AG', 'B': 'SKW', 'C': 'MKVLAAGG'}
+        out = io.StringIO()
+        with mock.patch('builtins.input', side_effect=['4', 'QUIT']), contextlib.redirect_stdout(out):
+            chainstd.align_to_std_seq_and_save_to_disk(seqs, standard, [self.path], [self.path],
+                                                       os.path.join(self.tmp, 'out'))
+        text = out.getvalue()
+        self.assertEqual(re.findall(r'Chain (\w+): (\d) of (\d) done', text),
+                         [('A', '1', '3'), ('B', '2', '3'), ('C', '3', '3')])
+        self.assertNotIn('already completed', text)
+        self.assertTrue(os.path.isfile(self.out))
+
     def test_step4_swaps_chains_everywhere(self):
         with quiet():
             chainstd.reassignedmaps_to_pdb([self.path], [{'A': 'B', 'B': 'A'}], [self.path],
