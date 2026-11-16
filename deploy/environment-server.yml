@@ -1,0 +1,17 @@
+# What the CIFcurator server needs (Steps 1-5), without the notebook and GUI packages of
+# ../environment.yml. Same versions as ../environment.yml: change them together.
+name: base
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.14
+  - biopython=1.86
+  - mmseqs2=15.6f452
+  - muscle=5.1
+  - numpy=2.3.5
+  - pandas=2.3.3
+  - git
+  - pip=25.2
+  - pip:
+      - matching==1.4

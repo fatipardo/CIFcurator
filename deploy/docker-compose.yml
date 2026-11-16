@@ -1,0 +1,59 @@
+# CIFcurator server + Caddy (HTTPS). Settings are in .env (copy .env.example to .env).
+#   docker compose up -d --build     start, or rebuild after changing the code
+#   docker compose logs -f cifcurator
+#   docker compose down              stop (jobs and certificates are kept in the volumes)
+services:
+  cifcurator:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        CIFCURATOR_COMMIT: ${CIFCURATOR_COMMIT:-unknown}
+    restart: unless-stopped
+    init: true
+    # Ctrl-C (SIGINT) is what makes the server stop the running job's processes before it exits
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    # A runaway job is killed inside this limit, instead of taking the memory of Caddy and SSH
+    # (a step can need 9 GB or more for keywords with many different entities, e.g. many ligands)
+    mem_limit: ${MEM_LIMIT:-13g}
+    volumes:
+      - cifcurator-data:/data
+    # Not published: only Caddy (same Docker network) talks to port 8000
+    expose:
+      - "8000"
+    command: >-
+      --public-url ${PUBLIC_URL}
+      --retention-days ${RETENTION_DAYS:-7}
+      --max-entries ${MAX_ENTRIES:-400}
+      --max-csm ${MAX_CSM:-200}
+      --job-timeout-hours ${JOB_TIMEOUT_HOURS:-2}
+      ${EXTRA_ARGS:-}
+    logging:
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2.11.9
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - cifcurator
+    logging:
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  cifcurator-data:
+  caddy-data:
+  caddy-config:
