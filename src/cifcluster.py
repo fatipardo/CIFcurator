@@ -4,6 +4,7 @@ import subprocess
 import pandas as pd
 import csv
 import string
+from collections import defaultdict
 
 # ------------------ CLUSTERING ---------------------
 def mapping_sequences_count(file_path):
@@ -692,19 +693,22 @@ def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
 
     print("\nRNA/DNA and protein clustering stages completed.")
 
-
-def resolve_polymeric_chain_concatenations(master_molID_class_list, project_directory):
-    """Identifies polymeric entities involved in concatenations and assigns unique chain
-    identifiers based on their original chain IDs and the number of chains associated with each entity.
+def resolve_polymeric_chain_concatenations(master_molID_class_list):
+    """
+    Filters polymer entities and processes their chain concatenations file by file,
+    renaming and updating their mapped chain IDs based on concatenation order.
 
     Parameters
     ----------
-    master_molID_class_list (list): List of molecular ID classification objects.
-    project_directory (str): Path to the project directory containing input_file.txt.
+    master_molID_class_list (list): A list of MolID class objects representing
+                                    entity and chain information across CIF files.
+
+    Returns
+    -------
+    list
+        The updated master list of MolID class objects with modified chain ID mappings.
     """
-
-    input_file_path = f"{project_directory}/input_file.txt"
-
+    # Finding the entities that are Polymers
     polymers = {}
     for i in master_molID_class_list:
         for entid in i.entity_type_map:
@@ -714,45 +718,45 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list, project_dire
             if entity_type == 'polymer':
                 polymers[entity_name] = 'polymer'
 
-    # Read basic info regarding entities: chain count, base chains
-    entities_to_chains = {}
-    entities_to_chainsCounts = {}
-    final_chain_set = {}
+    # Structure: file_dict[file_name] = list of tuples (new_chain, concat_idx, molID, chID)
+    file_dict = defaultdict(list)
 
-    with open(input_file_path, "r") as f:
-        for line in f:
-            components = line.split(":")
-            if len(components) < 2:
-                continue
-            entity = components[0].strip()
-            chains = components[1].strip().split(",")
-            final_chain_set[entity] = chains
+    for molID_class in master_molID_class_list:
+        file_name = molID_class.file_name
+        for molID, chID_list in molID_class.molID_chID.items():
+            if molID in polymers: # If the entity is a polymer
+                for chID in chID_list:  # For each chain assigned to the entity
+                    if chID in molID_class.concat_order:  # if the chain is part of a concat
+                        curr_chain = molID_class.chID_newchID_map[chID] # The new chain as of now
+                        concat_idx = molID_class.concat_order[chID]  # concat order
+                        # Keep track of old chain (chID) or molID if needed for mapping
+                        file_dict[file_name].append((curr_chain, concat_idx, molID, chID, molID_class))
 
-            if entity in polymers:
-                entities_to_chains[entity] = chains[0]
-                entities_to_chainsCounts[entity] = len(chains)
+    if not file_dict: return master_molID_class_list # If the dictionary is empty, return
+    # Process and rename chains file by file
+    for file_name in sorted(file_dict.keys()):
+        # Sorting dictionary by chain -> concat order
+        sorted_file_entries = sorted(file_dict[file_name], key=lambda x: (x[0], x[1]))
 
-    # Copilot's suggestion
-    next_copy_index = {}
+        place_holder_chain = ""
+        for curr_chain, concat_idx, molID, chID, molID_class in sorted_file_entries:
+            if int(concat_idx) == 1:
+                place_holder_chain = curr_chain
 
-    for entity_name, base_chain in sorted(entities_to_chains.items(), key=lambda item: (item[1], item[0])):
-        count = entities_to_chainsCounts.get(entity_name, 1)
+            combo = get_combination(int(concat_idx - 1))
 
-        start_index = next_copy_index.get(base_chain, 0)
+            # Using place_holder_chain (or curr_chain) as the base to construct the new chain name
+            new_chain = f"{place_holder_chain}{combo}"
 
-        final_chain_set[entity_name] = [
-            f"{base_chain}{get_combination(start_index + i)}"
-            for i in range(count)
-        ]
+            # Update the mapping in the corresponding MolID object
+            molID_class.chID_newchID_map[chID] = new_chain
 
-        # Increment the global index for this base chain so the next entity doesn't overwrite it
-        next_copy_index[base_chain] = start_index + count
+        # After modifying the mappings for this file, we recalculate its concatenation states
+        for molID_class in master_molID_class_list:
+            if molID_class.file_name == file_name:
+                molID_class.check_for_concatenations()
 
-    with open(input_file_path, "w") as f:
-        for key, val_list in final_chain_set.items():
-            joined_values = ",".join(val_list)
-            f.write(f"{key}:{joined_values}\n")
-
+    return master_molID_class_list
 
 def finding_problematic_cluster_results(clustering_directory):
     """
@@ -1114,6 +1118,7 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
             joined_values = ",".join(val_list)
             f.write(f"{key}:{joined_values}\n")
 
+    print(f"\nWritten input file to {project_dir}/input_file.txt\n")
 
 def run_clustering_pipeline(filelist, project_dir, seqres_file):
     """

@@ -245,82 +245,6 @@ class MolID(object):
 
 # END MolID class
 
-
-# make_molID is the function that will grab all relevant information from each
-# file input
-def make_MolID(myfile): # NEVER CALLED
-    """
-    Process a file to extract entity names (MolID) and chain IDs (chID),
-    and organize them into an instance of the `MolID` class.
-
-    Function reads a file line by line, extracting entity name and
-    chain ID information from lines containing "COMPND". The extracted
-    data is then cleaned and structured into a dictionary mapping each
-    entity name to its corresponding chain IDs. A new instance of the `MolID`
-    class is created and returned.
-
-    Parameters
-    ----------
-    myfile : file object
-        The file object to be processed. It should contain lines with
-        "COMPND" keywords where entity name and chID information are present.
-
-    Returns
-    -------
-    my_molID_class : MolID
-        An instance of the `MolID` class containing the file name, chain ID
-        to new chain ID mapping, entity name (MolID) to chain ID mapping, concatenation
-        order, and completion order.
-    """
-    file_name = myfile.name
-    molID_list = []
-    chID_list = []
-    molID_chID = {}
-    chID_newchID_map = {}
-    concat_order = {}
-    complete_order = {}
-
-    for line in myfile:
-        if "COMPND" in line:
-            if "MOLECULE:" in line or "MOLID:" in line:
-                line_list = line.rsplit(':')
-                molID = line_list[1].strip()
-
-                # Remove leading and trailing spaces
-                molID = re.sub(r' \{0,\}$|^ \{0,\}', '', molID)
-
-                # Remove any special characters
-                molID = re.sub(':|;|’|“|”', '', molID)
-
-                # Add single leading and trailing space and bookmark with ;
-                molID = re.sub('^', '; ', molID)
-                molID = re.sub('$', ' ;', molID)
-                molID_list.append(molID.upper())
-
-            if "CHAIN:" in line:
-                line_list = line.rsplit(':')
-                chID = line_list[1].strip()
-
-                # Remove all spaces and ;
-                chID = re.sub(' |;', '', chID)
-                chID = chID.split(',')
-                chID_list.append(chID)
-
-    for i in range(len(chID_list)):
-        if molID_list[i] not in molID_chID:
-            molID_chID[molID_list[i]] = chID_list[i]
-        else:
-            for chid in chID_list[i]:
-                    molID_chID[molID_list[i]].append(chid)
-
-    my_molID_class = MolID(file_name, chID_newchID_map, molID_chID, concat_order, complete_order)
-    my_molID_class.check_for_concatenations()
-    return my_molID_class
-# END make_MolID
-
-
-# make_molID is the function that will grab all relevant information from each
-# file input
 def make_MolID_cif(myfile):
     """
     Extracts and maps entity names (MolID) to their chain IDs using the entity ID from a CIF,
@@ -617,12 +541,12 @@ def CreateMasterUniqueMolIDinitialChainIDsLIST(molID_class_list):
     """
     Creates a dictionary that maps each entity name (MolID) to a list of initial chain IDs.
 
-    Parameters
+    Parameters:
     ----------
     molID_class_list : list
         A list of objects, each containing a `molID_chID` dictionary that maps MolIDs to chain IDs.
 
-    Returns
+    Returns:
     -------
     unique_molID_ChainIDs_map_list : dict
         A dictionary where the keys are entity names  and the values are lists of lists,
@@ -638,13 +562,6 @@ def CreateMasterUniqueMolIDinitialChainIDsLIST(molID_class_list):
                 unique_molID_ChainIDs_map_list[molID].append([my_molID_class.molID_chID[molID]])
     return unique_molID_ChainIDs_map_list
 
-
-# FAPA APRIL 2024 V2 END
-
-# FAPA MARCH 2024
-# This is a test to create a "track-changes" feature
-# We will keep track of the structures that contain
-# each entity :D let's see!
 def CreateMasterUniqueMolIDMapWithFileName(molID_class_list):
     """
     Creates a dictionary that maps each unique entity name (MolID) to a list
@@ -652,15 +569,15 @@ def CreateMasterUniqueMolIDMapWithFileName(molID_class_list):
 
     Parameters:
     -----------
-        molID_class_list : list
-            A list of objects, each containing a `molID_chID` dictionary that maps
-            entity names to chain IDs, and a `file_name` attribute representing the name of the CIF.
+    molID_class_list : list
+        A list of objects, each containing a `molID_chID` dictionary that maps
+        entity names to chain IDs, and a `file_name` attribute representing the name of the CIF.
 
     Returns:
     --------
-        files_contain_molID : dict
+    files_contain_molID : dict
         A dictionary where the keys are entity names and the values are lists of CIF names that
-         contain the entity name.
+        contain the entity name.
     """
     files_contain_molID = {} #this will be a dictionary of entity:[list of files]
     for my_molID_class in molID_class_list:
@@ -671,54 +588,56 @@ def CreateMasterUniqueMolIDMapWithFileName(molID_class_list):
                 files_contain_molID[molID].append(my_molID_class.file_name)
     return files_contain_molID
 
-def show_full_conversion_and_file_list_by_number_chains(MolID_ChainID_dict_of_lists,current_MolID_class_list,current_MolID_file_list,MolID_occur_dict_of_lists,target_dir,write_csv=True):
+
+def show_full_conversion_and_file_list_by_number_chains(master_molID_class_list, current_MolID_file_list, target_dir,
+                                                        write_csv=True):
     """
-    Display and optionally save a mapping of old chain IDs to new chain IDs, including
-    associated file lists and the number of occurrences of each entity name.
+        Collects finalized old-to-new chain ID mappings across all CIF files, sorts them
+        by entity name (MolID), and writes the summary table to a CSV file.
 
-    Parameters
-    ----------
-    MolID_ChainID_dict_of_lists : dict
-        A dictionary where each key is a entity name, and the corresponding value is a list
-        of old chain IDs for that entity name.
-    current_MolID_class_list : list
-        A list of `MolIDConversion` class instances, each representing the mapping between old
-        and new chain IDs for a entity name.
-    current_MolID_file_list : dict
-        A dictionary where each key is a entity name, and the corresponding value is a list
-        of file paths associated with that entity name.
-    MolID_occur_dict_of_lists : dict
-        A dictionary where each key is a entity name, and the corresponding value is a list
-        of integers representing the number of occurrences (chains) in the corresponding file.
-    target_dir : str
-        The directory path where the CSV file will be saved if `write_csv` is `True`.
-    write_csv : bool, optional
-        If `True`, the function will save the output to a CSV file. Default is `True`.
+        Parameters
+        ----------
+        master_molID_class_list(list): List of finalized MolID class objects containing entity
+                                       and chain ID mapping information for each CIF file.
+        current_MolID_file_list(dict): Dictionary mapping each entity name (MolID) to the list
+                                       of CIF file paths containing that entity.
+        target_dir(str): Path to the output directory where the CSV file will be saved.
+        write_csv(bool, optional): Whether to write the output to a CSV file (default is True).
 
-    Returns
-    -------
-    None
-    """
-    if write_csv:
-        with open(f'{target_dir}/OldChainID_NewChainID_numbered_MolID_Files_Map.csv', 'w') as fout:
-            fout.write('OldChainID(label_asym_id):NewChainID:Entity:NumberOfFiles:Files\n')
+        Returns
+        -------
+        None
+        """
+    rows = []
+    csv_path = f'{target_dir}/NEWOldChainID_NewChainID_numbered_MolID_Files_Map.csv'
 
-    for molIDConversion in current_MolID_class_list:
-        filelist = [x.split("/")[-1] for x in current_MolID_file_list[molIDConversion.molID]]
-        counter=0
-        for file_name in filelist:
-            nchains=MolID_occur_dict_of_lists[molIDConversion.molID][counter]
+    # Iterate through each file's finalized MolID object
+    for molID_class in master_molID_class_list:
+        file_name = molID_class.file_name.split("/")[-1]
+
+        for molID, old_chIDs in molID_class.molID_chID.items():
+            nchains = len(old_chIDs)
+            num_files = len(current_MolID_file_list[molID])
+
+            # Pull the finalized new chain IDs directly from this file's chID_newchID_map
+            new_chIDs = [molID_class.chID_newchID_map[chID] for chID in old_chIDs]
+
             if nchains > 5:
-                molIDCon_chID_list_forPrint = str(nchains)+"x"+str(molIDConversion.chID_list[0])
+                molIDCon_chID_list_forPrint = f"{nchains}x{new_chIDs[0]}"
             else:
-                molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list[:nchains]))
+                molIDCon_chID_list_forPrint = ",".join(new_chIDs)
 
-            chainds_for_print = re.sub(r"\[|\]| |'", '',str(MolID_ChainID_dict_of_lists[molIDConversion.molID][counter]))
-            
-            if write_csv:
-                with open(f'{target_dir}/OldChainID_NewChainID_numbered_MolID_Files_Map.csv', 'a') as fout:
-                    fout.write(f'{chainds_for_print}:{molIDCon_chID_list_forPrint}:{molIDConversion.molID}:{str(len(filelist))}:{file_name}\n')
-            counter+=1
+            chainds_for_print = ",".join(old_chIDs)
+
+            rows.append((molID, file_name, chainds_for_print, molIDCon_chID_list_forPrint, num_files))
+
+    rows.sort(key=lambda x: (x[0])) # Sort by MolID (index 0)
+
+    if write_csv:
+        with open(csv_path, 'a') as f:
+            f.write('OldChainID(label_asym_id):NewChainID:Entity:NumberOfFiles:Files\n')
+            for molID, file_name, chainds_for_print, molIDCon_chID_list_forPrint, num_files in rows:
+                f.write(f'{chainds_for_print}:{molIDCon_chID_list_forPrint}:{molID}:{num_files}:{file_name}\n')
 
     print("\n")
 #
@@ -774,7 +693,7 @@ def read_input_file(input_cnv_file):
 # INTERACTIVE CONVERSION FUNCTIONS #
 ####################################
 
-def show_full_conversion(current_list, step='conversion'):
+def show_full_conversion(current_list):
     """
     Displays the full conversion or concatenation information of entity names and their chain IDs.
 
@@ -790,26 +709,11 @@ def show_full_conversion(current_list, step='conversion'):
     --------
     None
     """
-    if(step=='conversion'):
-        for molIDConversion in current_list:
-            molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
-            print(molIDConversion.molID+":"+molIDCon_chID_list_forPrint)
-    elif(step=='concatenation'):
-        for molID_class in current_list:
-            for molID in molID_class.molID_chID:
-                for chID in molID_class.molID_chID[molID]:
-                    if chID in molID_class.concat_order:
-                        print(molID_class.file_name + ":" + molID + ":"
-                              + chID + ":" +
-                              molID_class.chID_newchID_map[chID] + ":"
-                              + str(molID_class.concat_order[chID]))
-                    else:
-                        print(molID_class.file_name + ":" + molID + ":"
-                              + chID + ":" +
-                              molID_class.chID_newchID_map[chID] + ":" +
-                              str(0))
+    for molIDConversion in current_list:
+        molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
+        print(molIDConversion.molID+":"+molIDCon_chID_list_forPrint)
 
-def show_unassigned_conversion(current_list, step='conversion'):
+def show_unassigned_conversion(current_list):
     """
     Displays unassigned entity name conversions or concatenations.
 
@@ -818,38 +722,19 @@ def show_unassigned_conversion(current_list, step='conversion'):
     current_list : list
         A list of objects, either `MolIDConversion` or `MolID_class`, depending on the step.
         Each object in the list will be checked for completeness based on the specified step.
-
-    step : str, optional
-        Specifies the type of check to perform. It can be either 'conversion' or 'concatenation'.
-        - 'conversion': Checks for incomplete entity name conversions.
-        - 'concatenation': Checks for incomplete entity name concatenations.
         """
-    if(step=='conversion'):
-        counter1=0
-        counter2=0
-        for molIDConversion in current_list:
-            molIDConversion.check_for_completeness()
-            if molIDConversion.complete is False:
-                counter1+=1
-                counter2=counter2+molIDConversion.occur
-                molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
-                #
-                print(str(molIDConversion.occur)+":"+str(molIDConversion.molID)+":"+molIDCon_chID_list_forPrint)
-        print("You need to accept %s entity conversions" % counter1)
-        print("You need to accept %s total chain conversions" % counter2)
+    counter1=0
+    counter2=0
+    for molIDConversion in current_list:
+        molIDConversion.check_for_completeness()
+        if molIDConversion.complete is False:
+            counter1+=1
+            counter2=counter2+molIDConversion.occur
+            molIDCon_chID_list_forPrint = re.sub(r"\[|\]| |'", '', str(molIDConversion.chID_list))
 
-    elif(step=='concatenation'):
-        counter=0
-        for molID_class in current_list:
-            for molID in molID_class.molID_chID:
-                for chID in molID_class.molID_chID[molID]:
-                    if molID_class.complete_order[chID] is False:
-                        counter+=1
-                        print(molID_class.file_name + ":" + molID + ":"
-                              + chID + ":" +
-                              molID_class.chID_newchID_map[chID] + ":"
-                              + str(molID_class.concat_order[chID]))
-        print("You need to accept %s concatenations" % counter )
+            print(str(molIDConversion.occur)+":"+str(molIDConversion.molID)+":"+molIDCon_chID_list_forPrint)
+    print("You need to accept %s entity conversions" % counter1)
+    print("You need to accept %s total chain conversions" % counter2)
 
 
 def return_unassigned_conversion(current_list, step='conversion'):
@@ -1111,162 +996,6 @@ def problem_counter(master_molID_class_list):
             if molID_class.complete_order[chID] is False:
                 count_problems += 1
     return count_problems
-
-
-def edit_concatenation_interface(master_molID_class_list, new_order=None):
-    """
-    Manages the interface for testing new chain ID concatenations.
-
-    Function provides an interactive interface for users to search for
-    entity names, update chain IDs, and accept or deny proposed changes.
-
-    Parameters:
-    -----------
-    master_molID_class_list : list
-        A list of `molID_class` objects representing different entity names
-        and their associated chain IDs.
-
-    new_order : str, optional
-        The new chain ID provided by the user. Defaults to None.
-
-    Returns:
-    --------
-    master_molID_class_list : list
-        The updated list of `molID_class` objects after applying the
-        user's modifications.
-
-    new_order : str
-        The last chain ID input by the user. If no new input was provided,
-        it returns the initial value of `new_order`.
-    """
-    concat_submenu = 0
-
-    while concat_submenu != "QUIT":
-        search_term, concat_submenu = get_search_term(concat_submenu)
-        print(search_term)
-        print(concat_submenu)
-
-        if concat_submenu != "QUIT":
-            found_molID_class_chID_map, molID_class_been_copied = search_chains(
-                master_molID_class_list, search_term
-            )
-
-        while concat_submenu != "QUIT":
-            print("""Select one of the following options to proceed:
-                     1) Perform new search
-                     2) Update new chain ID
-                  """)
-
-            concat_submenu = input('Option Number: ')
-
-            if concat_submenu == "1":
-                break
-
-            elif concat_submenu == "2":
-                new_order = input('New Chain ID: ')
-
-                found_molID_class_chID_map = edit_chain_order(
-                    found_molID_class_chID_map,
-                    new_order,
-                    action='try'
-                )
-
-                print_conflicts(found_molID_class_chID_map)
-                print("Would you like to accept or deny these changes?")
-
-                while concat_submenu != "QUIT":
-                    concat_submenu = input('Enter ACCEPT or DENY: ')
-
-                    if concat_submenu == "ACCEPT":
-                        master_molID_class_list = accept_newchain(
-                            master_molID_class_list,
-                            found_molID_class_chID_map
-                        )
-
-                    concat_submenu = "QUIT"
-
-    return master_molID_class_list, new_order
-
-
-def list_accept_concatenations(master_molID_class_list, search_term, new_order=None, action='accept'):
-    """
-    Manages and resolves chain concatenations in MolID classes within a master list.
-
-    Allows for user to search for chains in the MolID classes, review planned concatenations,
-    and either accept, deny, or modify these concatenations based on user input.
-
-    Parameters:
-    -----------
-    master_molID_class_list : list of MolID
-        A list containing instances of MolID classes representing entity names and their associated chains.
-    search_term : str
-        The term used to search for specific chains within the MolID classes. This is in the format
-        "MolID:ChainID".
-    new_order : str, optional
-        The new chain ID or concatenation order, depending on the action, that the user wants to apply. Default is None.
-    action : str, optional
-        The action to perform on the chains. It can be:
-        - 'try': Allows user to try out a new chain ID.
-        - 'update': Allows user to update the concatenation order.
-        - 'accept': Allows user to accept the planned concatenation. Default is 'accept'.
-
-    Returns:
-    --------
-    master_molID_class_list : list of MolID
-        The updated master list of MolID classes after applying the selected changes.
-    new_order : str
-        The new chain ID or concatenation order applied, if any.
-    """
-    concat_submenu = 0
-    while(concat_submenu != "QUIT"):
-        search_term = search_term.split(":")
-
-        if concat_submenu != "QUIT":
-            found_molID_class_chID_map, molID_class_been_copied = search_chains(master_molID_class_list, search_term)
-        while (concat_submenu != "QUIT"):
-            if(action=='try'):
-                print("""Select one of the following options to proceed:
-                         1) Perform new search
-                         2) Update new chain ID
-                         Type 'QUIT' to exit
-                      """)
-            elif(action=='update'):
-                print("""Select one of the following options to proceed:
-                         1) Perform new search
-                         2) Update concatenation order
-                         Type 'QUIT' to exit
-                      """)
-            elif(action=='accept'):
-                print("""Select one of the following options to proceed:
-                         1) Perform new search
-                         2) Accept planned concatenation
-                         Type 'QUIT' to exit
-                      """)
-            concat_submenu = input('Option Number: ')
-            if (concat_submenu == "1"):
-                break
-            elif (concat_submenu == "2"):
-                if(action=='try'):
-                    new_order = input('New Chain ID: ')
-                elif(action=='update'):
-                    new_order = input('New concatenation order: ')
-                found_molID_class_chID_map = edit_chain_order(found_molID_class_chID_map, new_order, action=action)
-                if(action=='try'):
-                    print_conflicts(found_molID_class_chID_map)
-                    print("Would you like to accept or deny these changes?")
-                    while (concat_submenu != "QUIT"):
-                        concat_submenu = input('Enter ACCEPT or DENY: ')
-                        if (concat_submenu == "ACCEPT"):
-                            master_molID_class_list = accept_newchain(master_molID_class_list, found_molID_class_chID_map)
-                        concat_submenu = "QUIT"
-
-                else:
-
-                    master_molID_class_list = accept_newchain(master_molID_class_list, found_molID_class_chID_map)
-
-                    concat_submenu = "QUIT"
-    return master_molID_class_list, new_order
-
 
 def list_accept_concatenations_auto(master_molID_class_list, search_term, new_order=None):
     """
