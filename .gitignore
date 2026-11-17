@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+# Server settings with the email password (deploy/.env.example is the template)
+deploy/.env
