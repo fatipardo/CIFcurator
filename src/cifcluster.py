@@ -746,7 +746,7 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list):
             combo = get_combination(int(concat_idx - 1))
 
             # Using place_holder_chain (or curr_chain) as the base to construct the new chain name
-            new_chain = f"{place_holder_chain}{combo}"
+            new_chain = f"{curr_chain}{combo}"
 
             # Update the mapping in the corresponding MolID object
             molID_class.chID_newchID_map[chID] = new_chain
