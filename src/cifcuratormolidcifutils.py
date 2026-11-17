@@ -609,7 +609,7 @@ def show_full_conversion_and_file_list_by_number_chains(master_molID_class_list,
         None
         """
     rows = []
-    csv_path = f'{target_dir}/NEWOldChainID_NewChainID_numbered_MolID_Files_Map.csv'
+    csv_path = f'{target_dir}/OldChainID_NewChainID_numbered_MolID_Files_Map.csv'
 
     # Iterate through each file's finalized MolID object
     for molID_class in master_molID_class_list:
