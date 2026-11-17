@@ -743,11 +743,19 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list, output_path)
         for m in file_molID_objs:
             used_chains.update(m.chID_newchID_map.values())
 
+        nonpolymer_destinations = {
+            m.chID_newchID_map[old]
+            for m in file_molID_objs
+            for entity, old_chains in m.molID_chID.items()
+            if entity not in polymers
+            for old in old_chains
+        }
+
         for curr_chain, concat_idx, molID, chID, molID_class in sorted_file_entries:
-            if int(concat_idx) == 1:
+            if int(concat_idx) == 1 and curr_chain not in nonpolymer_destinations:
                 new_chain = curr_chain
             else:
-                suffix_idx = int(concat_idx) - 1
+                suffix_idx = max(1, int(concat_idx) - 1)
                 new_chain = f"{curr_chain}{get_combination(suffix_idx)}"
                 while new_chain in used_chains:
                     suffix_idx += 1
