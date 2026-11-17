@@ -634,7 +634,7 @@ def show_full_conversion_and_file_list_by_number_chains(master_molID_class_list,
     rows.sort(key=lambda x: (x[0])) # Sort by MolID (index 0)
 
     if write_csv:
-        with open(csv_path, 'a') as f:
+        with open(csv_path, 'w') as f:
             f.write('OldChainID(label_asym_id):NewChainID:Entity:NumberOfFiles:Files\n')
             for molID, file_name, chainds_for_print, molIDCon_chID_list_forPrint, num_files in rows:
                 f.write(f'{chainds_for_print}:{molIDCon_chID_list_forPrint}:{molID}:{num_files}:{file_name}\n')
