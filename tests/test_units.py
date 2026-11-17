@@ -1221,11 +1221,9 @@ class TestMolIDScriptHelp(unittest.TestCase):
                         'A) Track changes'):
             self.assertNotIn(removed, self.result.stdout)
 
-    def test_help_does_not_list_quit_as_a_menu_option(self):
-        # NOV2026 (a150fb0): the menus no longer print "Type 'QUIT' to exit", but QUIT still exits
-        self.assertNotIn("Type 'QUIT'", self.code)
-        self.assertNotIn('  QUIT ', self.result.stdout)
-        self.assertIn('Type QUIT at any menu to exit without writing CIF files.', self.result.stdout)
+    def test_help_and_menus_show_quit(self):
+        self.assertIn("OR type 'QUIT' to exit", self.code)
+        self.assertIn('QUIT   Exit without writing CIF files.', self.result.stdout)
 
     def test_projdir_is_optional(self):
         # nargs='?': without it argparse ignores default='.' and projdir is required
