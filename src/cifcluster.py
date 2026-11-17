@@ -896,6 +896,14 @@ def finding_problematic_cluster_results(clustering_directory):
         )
 
 
+    for warning_name, issues in (
+        ('duplicate_entities_warning.csv', pdb_entries_in_multiple_files),
+        ('duplicate_entries_warning.csv', entities_in_multiple_files),
+    ):
+        warning_path = os.path.join(clustering_directory, warning_name)
+        if not issues and os.path.isfile(warning_path):
+            os.remove(warning_path)
+
     return cluster_pdbchids, outlier_case_entries
 
 
