@@ -13,7 +13,7 @@ to be installed. They do need its dependencies (biopython, numpy, ...).
 
 | File | What | Needs |
 | --- | --- | --- |
-| `test_units.py` | Pure functions: residue-name conversion, gap percentages, alignment scoring, seqres search, CIF cleaning (including the OCT2026 path fix), the CIF writers of Steps 3-5, the clustering and input-file generation of Step 3, project directories, the options of `CIFcurator_Download.py` (downloads mocked) | nothing (offline, a few s); one test uses `mmseqs` if it is on `PATH` |
+| `test_units.py` | Pure functions: residue-name conversion, gap percentages, alignment scoring, seqres search, CIF cleaning (including the OCT2026 path fix), the CIF writers of Steps 3-5, the clustering, input-file generation and polymer chain renaming (option 5) of Step 3, project directories, the options of `CIFcurator_Download.py` (downloads mocked) | nothing (offline, a few s); one test uses `mmseqs` if it is on `PATH` |
 | `test_pipeline.py` | The full workflow, Steps 1 -> 5, on live PDB data, and `CIFcurator_Download.py` | network, `mmseqs` (MMseqs2) and `muscle` (v5) on `PATH` |
 
 Steps 1 and 2 of the pipeline test are the two parts of Step 1 (download, then clean), which users run with

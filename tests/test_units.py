@@ -7,6 +7,7 @@ Run from the repository root:
 import contextlib
 import gzip
 import io
+import itertools
 import json
 import os
 import pathlib
@@ -1189,6 +1190,91 @@ class TestClustering(TempDirTestCase):
         self.assertEqual(outliers, {})
         self.assertEqual(len(self.cluster_files()), 2)
         self.assertFalse(os.path.exists(os.path.join(self.storage, 'RNA_DNA_clustering_storage')))
+
+
+class TestResolvePolymericChainConcatenations(unittest.TestCase):
+    """
+    NOV2026 (PR #240, Copilot review): option 5 renames the polymer chains that would be concatenated (with each
+    other or with a ligand) before it finalizes; a polymer chain still marked incomplete raises a RuntimeError.
+    """
+    TYPES = {'PROTEIN': 'polymer', 'OTHER PROTEIN': 'polymer', 'LIGAND': 'non-polymer'}
+
+    def resolve(self, chains):
+        """
+        Resolve one file whose chains are [(old chain, entity name, new chain)], in the order of the CIF.
+        Returns the MolID with the resolved {old chain: new chain}.
+        """
+        entities = list(dict.fromkeys(entity for _, entity, _ in chains))
+        types = {str(i + 1): self.TYPES[e] for i, e in enumerate(entities)}
+        names = {str(i + 1): e for i, e in enumerate(entities)}
+        molid_chid = {e: [old for old, entity, _ in chains if entity == e] for e in entities}
+        molid = molidutils.MolID('pdb_00009xyz+01.cif', types, names, {old: new for old, _, new in chains},
+                                 molid_chid, {}, {})
+        molid.check_for_concatenations()
+        with quiet():
+            (resolved,) = cifcluster.resolve_polymeric_chain_concatenations([molid], None)
+        self.assertIs(resolved, molid)
+        return molid
+
+    def assert_polymers_resolved(self, molid):
+        """Each polymer chain has its own destination, no ligand has it, and option 5 can finalize."""
+        polymers = [ch for e, chs in molid.molID_chID.items() if self.TYPES[e] == 'polymer' for ch in chs]
+        others = {molid.chID_newchID_map[ch] for ch in molid.chID_newchID_map if ch not in polymers}
+        destinations = [molid.chID_newchID_map[ch] for ch in polymers]
+        self.assertEqual(len(set(destinations)), len(destinations), destinations)
+        self.assertFalse(others & set(destinations), destinations)
+        self.assertTrue(all(molid.complete_order[ch] for ch in polymers), molid.complete_order)
+        self.assertTrue(all(c.isalpha() for c in destinations), destinations)
+
+    def test_repeated_polymer_destinations(self):
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'PROTEIN', 'A'), ('C', 'PROTEIN', 'A')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'Ab', 'C': 'Ac'})
+        self.assert_polymers_resolved(molid)
+
+    def test_reserved_suffix_ids_are_skipped(self):
+        # Ab and Ac already belong to other chains, so the second copy of A becomes Ad
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'PROTEIN', 'A'), ('C', 'OTHER PROTEIN', 'Ab'),
+                              ('D', 'LIGAND', 'Ac')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'Ad', 'C': 'Ab', 'D': 'Ac'})
+        self.assert_polymers_resolved(molid)
+
+    def test_repeated_reserved_suffix_id(self):
+        # The copies of Ab must not take a name already given to a copy of A
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'PROTEIN', 'A'), ('C', 'OTHER PROTEIN', 'Ab'),
+                              ('D', 'OTHER PROTEIN', 'Ab')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'Ac', 'C': 'Ab', 'D': 'Abb'})
+        self.assert_polymers_resolved(molid)
+
+    def test_polymer_before_ligand(self):
+        # The polymer is first (concatenation order 1), but the ligand keeps the shared chain
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'LIGAND', 'A')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'Ab', 'B': 'A'})
+        self.assert_polymers_resolved(molid)
+
+    def test_ligand_before_polymer(self):
+        molid = self.resolve([('A', 'LIGAND', 'A'), ('B', 'PROTEIN', 'A')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'Ab'})
+        self.assert_polymers_resolved(molid)
+
+    def test_all_polymer_and_ligand_orders(self):
+        # Ligand copies stay concatenated (option 5 accepts them), polymer copies never share a chain.
+        # The suffix follows the concatenation order, which counts the ligands too, so letters can be skipped
+        # (P1, L1, L2, P2 -> Ab, Ad)
+        chains = [('P1', 'PROTEIN', 'A'), ('P2', 'PROTEIN', 'A'), ('L1', 'LIGAND', 'A'), ('L2', 'LIGAND', 'A')]
+        for order in itertools.permutations(chains):
+            with self.subTest(order=[old for old, _, _ in order]):
+                molid = self.resolve(list(order))
+                self.assert_polymers_resolved(molid)
+                self.assertTrue(all(molid.chID_newchID_map[ch].startswith('A') for ch in ('P1', 'P2')))
+                self.assertEqual([molid.chID_newchID_map[ch] for ch in ('L1', 'L2')], ['A', 'A'])
+                self.assertFalse(molid.complete_order['L1'])
+
+    def test_only_ligands_concatenated(self):
+        # As in the pipeline: nothing to rename when only ligand copies share a chain
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'OTHER PROTEIN', 'B'), ('C', 'LIGAND', 'C'),
+                              ('D', 'LIGAND', 'C')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'B', 'C': 'C', 'D': 'C'})
+        self.assert_polymers_resolved(molid)
 
 
 class TestMolIDScriptHelp(unittest.TestCase):
