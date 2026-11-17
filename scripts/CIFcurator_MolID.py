@@ -104,7 +104,7 @@ while(input_menu != "QUIT"):
              2) Show only unassigned conversions
              3) Enter input file
              4) Generate input file
-             type 'QUIT' to exit
+             OR type 'QUIT' to exit
           """)
     if (input_menu_complete == "1"):
         print("    5) Continue to next step of curation")
