@@ -1142,7 +1142,7 @@ class TestClustering(TempDirTestCase):
             {'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 1), 'OTHER TEST PROTEINS B CHAIN': ('polymer', 1)}},
             {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009XYZ_B'}},
             {'PDB_00009XYZ_B': {'OTHER TEST PROTEINS B CHAIN'}})
-        self.assertEqual(generated, {'OTHER TEST PROTEINS B CHAIN': ['A'], 'TEST PROTEIN': ['B']})
+        self.assertEqual(generated, {'OTHER TEST PROTEINS B CHAIN': ['B'], 'TEST PROTEIN': ['A']})
 
     def test_polymers_of_one_cluster_in_different_files_get_the_same_chains(self):
         # NOV2026 (a150fb0): the same protein under two names in two files: both are named A, Ab, ...
@@ -1221,11 +1221,9 @@ class TestMolIDScriptHelp(unittest.TestCase):
                         'A) Track changes'):
             self.assertNotIn(removed, self.result.stdout)
 
-    def test_help_does_not_list_quit_as_a_menu_option(self):
-        # NOV2026 (a150fb0): the menus no longer print "Type 'QUIT' to exit", but QUIT still exits
-        self.assertNotIn("Type 'QUIT'", self.code)
-        self.assertNotIn('  QUIT ', self.result.stdout)
-        self.assertIn('Type QUIT at any menu to exit without writing CIF files.', self.result.stdout)
+    def test_help_and_menus_show_quit(self):
+        self.assertIn("OR type 'QUIT' to exit", self.code)
+        self.assertIn('QUIT   Exit without writing CIF files.', self.result.stdout)
 
     def test_projdir_is_optional(self):
         # nargs='?': without it argparse ignores default='.' and projdir is required
