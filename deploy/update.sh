@@ -6,8 +6,12 @@
 # stops if there is one, unless you add --force.
 set -euo pipefail
 cd "$(dirname "$0")"
-busy=$(docker compose exec -T cifcurator python -c "import glob, json; print(sum(json.load(open(p))['state'] in ('queued', 'running') for p in glob.glob('/data/jobs/*/job.json')))" 2>/dev/null || echo 0)
-if [ "$busy" != 0 ] && [ "${1:-}" != --force ]; then
+# python is only on the PATH through the image's entrypoint (micromamba), also for docker compose exec
+busy=$(docker compose exec -T cifcurator /usr/local/bin/_entrypoint.sh python -c "import glob, json; print(sum(json.load(open(p))['state'] in ('queued', 'running') for p in glob.glob('/data/jobs/*/job.json')))" 2>/dev/null) || busy=0
+if ! [[ "$busy" =~ ^[0-9]+$ ]]; then
+    echo "Could not count the jobs of the server. If none is queued or running: bash update.sh --force"
+    [ "${1:-}" = --force ] || exit 1
+elif [ "$busy" != 0 ] && [ "${1:-}" != --force ]; then
     echo "$busy job(s) queued or running: they would fail. Try again later, or: bash update.sh --force"
     exit 1
 fi
