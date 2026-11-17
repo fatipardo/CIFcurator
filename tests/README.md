@@ -38,7 +38,7 @@ so harmless PDB remediation does not break them:
   The script gets the project directory, with `pdb_seqres.fasta` as `seqres.txt` in it, and clusters the chains with MMseqs2 (NOV2026):
   only the input structures are clustered, all TIM chains fall in one cluster, and option 4 writes an input file with
   every entity of the tutorial file, one chain ID per copy (polymer copies A, Ab, ...), the same chain for both TIM entity names.
-  `TestStep3GeneratedInputFile` runs Step 3 again with that generated file (accepting the ligand concatenations) and checks the output.
+  `TestStep3GeneratedInputFile` runs Step 3 again with that generated file (the ligand concatenations are accepted automatically) and checks the output.
 - Step 4: the 1aw1 chains score 1.0 against the consensus. 1btm (different organism) scores below 0.6.
 - Step 5: the CIF numbering (`auth_seq_id` + `pdbx_PDB_ins_code`) matches `OldResID_NewResID_Map.csv`. Numbering increases along each chain. Insertion codes appear for gappy columns. Copies of the same protein get the same residue at the same number.
 

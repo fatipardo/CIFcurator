@@ -25,23 +25,19 @@ Conversion Build Menu:
   4) Generate input file
          From the clustering information, an input file is generated for the user
   5) Continue to next step of curation
-         Shown once every entity has all its chain IDs.
-         and writes Write OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
+         Shown once every entity has all its chain IDs. Writes
+         OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
          (original_chain_names:new_chain_names:entity_name:number_of_files:file_name).
   QUIT   Exit without writing CIF files.
 
-After option 5, if no two entities share a chain ID, option 6) Finalize Curation writes the
-CIF files to target_dir. Otherwise the Concatenations Menu appears: entities with the same
-chain ID will be concatenated into one chain, and each concatenation must be accepted first:
-  1) Show all conversions
-  2) Show only unaccepted concatenations
-  3) Search and modify destination chainIDs of proposed concatenations
-  4) Accept proposed concatenation one by one
-  5) Accept ALL (make sure you agree with all concatenations)
-  6) Finalize Curation
+Entities given the same chain ID in a file are concatenated into one chain, and these
+concatenations are accepted automatically with option 5. When two polymer chains would be
+concatenated, they get different chain IDs instead (A, Ab, ...), and the corrected chain IDs
+are saved in {projdir}/updated_input_file.txt. Then option 6) Finalize Curation writes the
+CIF files to target_dir.
 
 The answers can also be given on standard input, for example:
-  printf '3\nTIM_input_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank
+  printf '4\n3\ninput_file.txt\n5\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank .
 """
 
 from __future__ import print_function
@@ -95,7 +91,7 @@ while(input_menu != "QUIT"):
     if (input_menu_complete == "1"):
         print("""Congratulations! You have successfully constructed your
                  conversion templates. You can proceed to the next section
-                 by selection option 7 or, continue to edit your conversion
+                 by selecting option 5 or, continue to edit your conversion
                  template through this menu
               """)
     print("""CIFcurator MolID Conversion Build Menu

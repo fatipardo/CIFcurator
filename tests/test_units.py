@@ -1213,12 +1213,15 @@ class TestMolIDScriptHelp(unittest.TestCase):
         # Every "N) Option" line printed by the menus is described in -h, so the two cannot drift apart
         options = re.findall(r'^\s*(?:print\(")?\s*(\d\) [^\n"(]*[^\s"(])', self.code, re.MULTILINE)
         self.assertIn('4) Generate input file', options)
+        self.assertIn('5) Continue to next step of curation', options)
         for option in options:
             self.assertIn(option, self.result.stdout)
 
     def test_help_does_not_list_removed_options(self):
         for removed in ('Search MolID to add chain ID conversion', 'Go entry by entry', 'Remove a chain ID conversion',
-                        'A) Track changes'):
+                        'A) Track changes',
+                        # NOV2026 (cf32a18): the Concatenations Menu is gone, concatenations are accepted with 5
+                        'Concatenations Menu', 'Accept ALL', 'Accept proposed concatenation one by one'):
             self.assertNotIn(removed, self.result.stdout)
 
     def test_help_and_menus_show_quit(self):

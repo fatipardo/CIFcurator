@@ -140,10 +140,11 @@ class Pipeline:
         # <project_dir>/seqres.txt, where CIFcurator_Download.py saves pdb_seqres.fasta by default.
         os.symlink(self.seqfile, self.path('seqres.txt'))
         # 4 = generate input file (<project_dir>/input_file.txt), 3 = enter the tutorial input file,
-        # 7 = continue (NOV2026: also writes the track-changes CSV, option A is gone), 6 = finalize
+        # 5 = continue (also writes the track-changes CSV), 6 = finalize
+        # NOV2026 (cf32a18): continue moved from 7 to 5 and the Concatenations Menu is gone
         self.run_script('step3', 'CIFcurator_MolID.py',
                         [self.path('clean_bank_sub'), self.path('standard_MolID_bank'), self.root],
-                        '4\n3\n{0}\n7\n6\n'.format(MOLID_INPUT))
+                        '4\n3\n{0}\n5\n6\n'.format(MOLID_INPUT))
 
     def run_step4(self):
         os.mkdir(self.path('standard_ChainID_bank'))
@@ -366,7 +367,8 @@ class TestStep3Clustering(unittest.TestCase):
 class TestStep3GeneratedInputFile(unittest.TestCase):
     """
     NOV2026 (PR #240): Step 3 again, now entering the input file that option 4 generated. It gives every copy of
-    a ligand in a file the same chain ID, so the copies are concatenated: 5 = accept all concatenations.
+    a ligand in a file the same chain ID, so the copies are concatenated. Since cf32a18 the concatenations are
+    accepted automatically when continuing (there is no Concatenations Menu).
     """
     @classmethod
     def setUpClass(cls):
@@ -374,10 +376,10 @@ class TestStep3GeneratedInputFile(unittest.TestCase):
         cls.bank = 'standard_MolID_bank_generated'
         os.mkdir(PIPELINE.path(cls.bank))
         cls.generated = molidutils.read_input_file(PIPELINE.path('input_file.txt'))
-        # 3 = enter input file, 7 = continue, 5 = accept all concatenations, 6 = finalize
+        # 3 = enter input file, 5 = continue (concatenations accepted automatically), 6 = finalize
         PIPELINE.run_script('step3_generated', 'CIFcurator_MolID.py',
                             [PIPELINE.path('clean_bank_sub'), PIPELINE.path(cls.bank), PIPELINE.root],
-                            '3\n{0}\n7\n5\n6\n'.format(PIPELINE.path('input_file.txt')))
+                            '3\n{0}\n5\n6\n'.format(PIPELINE.path('input_file.txt')))
 
     def test_outputs(self):
         self.assertEqual(cif_files(self.bank), cif_files('standard_MolID_bank'))
