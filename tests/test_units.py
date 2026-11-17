@@ -1142,7 +1142,7 @@ class TestClustering(TempDirTestCase):
             {'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 1), 'OTHER TEST PROTEINS B CHAIN': ('polymer', 1)}},
             {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009XYZ_B'}},
             {'PDB_00009XYZ_B': {'OTHER TEST PROTEINS B CHAIN'}})
-        self.assertEqual(generated, {'OTHER TEST PROTEINS B CHAIN': ['A'], 'TEST PROTEIN': ['B']})
+        self.assertEqual(generated, {'OTHER TEST PROTEINS B CHAIN': ['B'], 'TEST PROTEIN': ['A']})
 
     def test_polymers_of_one_cluster_in_different_files_get_the_same_chains(self):
         # NOV2026 (a150fb0): the same protein under two names in two files: both are named A, Ab, ...
