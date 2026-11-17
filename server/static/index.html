@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CIFcurator server</title>
+<style>
+  /* Stanford identity colors (identity.stanford.edu/design-elements/color):
+     Cardinal Red header; Digital Red for buttons and alerts, Digital Blue for links,
+     Digital Green for success; Black, Cool Grey, Fog and Stone for text, lines and backgrounds. */
+  :root { --fg:#2E2D29; --muted:#53565A; --line:#D4D1D1; --bg:#F4F4F4; --card:#fff;
+          --cardinal:#8C1515; --accent:#B1040E; --accent-dark:#820000;
+          --link:#006CB8; --link-dark:#00548f;
+          --ok:#006F54; --bad:#820000; --run:#5D4B3C; --poppy:#E98300; }
+  * { box-sizing: border-box; }
+  [hidden] { display:none !important; }  /* also for buttons and flex rows, whose display would win otherwise */
+  body { margin:0; font:15px/1.5 "Source Sans 3", "Source Sans Pro", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--fg); background:var(--bg); }
+  header { background:var(--cardinal); color:#fff; padding:18px 24px; border-bottom:4px solid var(--accent-dark); }
+  header h1 { margin:0; font-size:22px; }
+  main { max-width:900px; margin:24px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:20px; margin-bottom:20px; }
+  h2 { font-size:17px; margin:0 0 14px; }
+  label { display:block; font-weight:600; margin:14px 0 4px; }
+  .hint { color:var(--muted); font-size:13px; font-weight:normal; margin:2px 0 0; }
+  input[type=text], input[type=number] { width:100%; padding:8px 10px; font:inherit; border:1px solid var(--line); border-radius:6px; }
+  input[type=number] { width:120px; }
+  textarea { width:100%; padding:8px 10px; font:13px/1.4 ui-monospace, Menlo, Consolas, monospace; border:1px solid var(--line); border-radius:6px; }
+  .steps .summary { color:var(--muted); font-size:13px; }
+  label.check { font-weight:600; display:flex; gap:8px; align-items:center; }
+  .warn { background:#FFF4C7; color:var(--run); border-left:3px solid var(--poppy); padding:6px 10px; font-size:13px; margin:6px 0 0; }
+  details { margin-top:14px; }
+  summary { cursor:pointer; font-weight:600; }
+  button, .button { display:inline-block; background:var(--accent); color:#fff; border:0; border-radius:6px; padding:9px 18px;
+           font:inherit; font-weight:600; cursor:pointer; text-decoration:none; }
+  button:not(:disabled):hover, .button:hover, button:focus-visible, .button:focus-visible { background:var(--accent-dark); }
+  button.secondary { background:#DAD7CB; color:var(--fg); }
+  button.secondary:not(:disabled):hover { background:#B6B1A9; }
+  a { color:var(--link); } a:hover, a:focus-visible { color:var(--link-dark); }
+  a.button, a.button:hover { color:#fff; }
+  input:focus, textarea:focus { outline:2px solid var(--link); outline-offset:-1px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .actions { margin-top:18px; display:flex; gap:10px; align-items:center; }
+  .error { color:var(--bad); white-space:pre-wrap; }
+  ol.steps { list-style:none; padding:0; margin:0; }
+  ol.steps li { padding:6px 0; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:baseline; }
+  ol.steps li:last-child { border-bottom:0; }
+  .badge { font-size:12px; font-weight:700; text-transform:uppercase; border-radius:4px; padding:1px 7px; min-width:72px; text-align:center; }
+  .pending { background:#EBEAE6; color:var(--muted); } .running, .queued { background:#FFF4C7; color:var(--run); }
+  .done { background:#E3F2EC; color:var(--ok); } .failed, .cancelled { background:#F9E3E3; color:var(--bad); }
+  .skipped { background:#EBEAE6; color:var(--muted); } .reused { background:#E1ECF5; color:var(--link-dark); }
+  select { padding:7px 10px; font:inherit; border:1px solid var(--line); border-radius:6px; max-width:100%; }
+  #rerun-plan.error { font-size:14px; }
+  .file-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .file-row button { padding:4px 12px; font-size:14px; }
+  .steps .time { color:var(--muted); font-size:13px; margin-left:auto; }
+  .steps a { font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); }
+  td a { cursor:pointer; }
+  code { background:#EBEAE6; padding:0 4px; border-radius:3px; }
+  input[type=email] { width:100%; padding:8px 10px; font:inherit; border:1px solid var(--line); border-radius:6px; }
+  .jobnumber { background:#F4F4F4; border:1px solid var(--line); border-left:4px solid var(--cardinal); border-radius:6px; padding:12px 14px; margin:0 0 14px; }
+  .jobnumber .number { font:700 22px/1.3 ui-monospace, Menlo, Consolas, monospace; letter-spacing:1px; user-select:all; }
+  .jobnumber .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .jobnumber p { margin:6px 0 0; font-size:13px; }
+  .jobnumber button { padding:5px 12px; font-size:14px; }
+  .check-row { display:flex; gap:10px; }
+  .check-row input { flex:1; font-family:ui-monospace, Menlo, Consolas, monospace; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CIFcurator</h1>
+</header>
+<main>
+
+<section class="card">
+  <h2 id="form-title">New curation</h2>
+  <p id="rerun-banner" class="warn" hidden>You are changing an earlier job: the structures it downloaded are reused. The keyword and the computed model options must stay as they were.
+    <a href="#" id="rerun-clear">Run a new job instead</a></p>
+  <form id="form">
+    <label for="keyword">Keyword</label>
+    <input type="text" id="keyword" name="keyword" placeholder="e.g. triosephosphate isomerase" required maxlength="200">
+    <p class="hint">Searched in the descriptions of the PDB sequences. Every structure with a chain whose sequence matches one of the hits is also downloaded.<span id="limits-note"></span></p>
+
+    <label class="check"><input type="checkbox" id="csm" name="csm"> Include computed structure models (AlphaFold DB)</label>
+    <p class="hint">Downloads the computed models that RCSB PDB finds for the keyword.</p>
+    <div id="csm-options" hidden>
+      <p class="warn">A computed model has <b>one protein chain only</b>: no nucleic acids, ligands, waters or other copies of the protein
+        (e.g. a homodimer is modelled as a monomer). It covers the full UniProt sequence, signal peptides included, and its B-factor column holds pLDDT.</p>
+      <label for="max_models">Maximum number of computed models</label>
+      <input type="number" id="max_models" name="max_models" min="1" max="1000" placeholder="all">
+      <p class="hint" id="max-models-hint">Best matches first. Leave blank to download all of them.</p>
+    </div>
+
+    <label for="email">Email (optional)</label>
+    <input type="email" id="email" name="email" maxlength="254" placeholder="you@example.org" autocomplete="email">
+    <p class="hint">You will get an email when the job ends, with the job number and a link to the results. Look in your spam folder if it does not arrive. Your email address is deleted once the email is sent.</p>
+
+    <details>
+      <summary>Advanced Options</summary>
+      <label for="parent">Start from an earlier job</label>
+      <input type="text" id="parent" name="parent" placeholder="Job number of a job that ended, e.g. K7QF-2M9X-HT4P-WN8D" autocomplete="off" spellcheck="false" maxlength="40">
+      <p class="hint">Change some inputs and run again without downloading the structures again (the keyword and the computed model options must stay the same). The rerun is a new job, with its own job number; the earlier job is not changed. It starts from the earliest step whose input you changed, and it is deleted when the earlier job is.</p>
+      <div id="rerun-options" hidden>
+        <label for="start_step">Step to start from</label>
+        <select id="start_step" name="start_step">
+          <option value="">Automatic: the earliest step whose input you changed</option>
+          <option value="exclude">Leave out the structures you listed (then Steps 3-5)</option>
+          <option value="molid">Step 3: entity (MolID) chain naming</option>
+          <option value="chainid">Step 4: chain ID standardization</option>
+          <option value="residueid">Step 5: residue number standardization</option>
+        </select>
+        <p class="hint">Only the automatic step or an earlier one: a later step would ignore what you changed.</p>
+        <label class="check" id="keep-input-row" hidden><input type="checkbox" id="keep_input_file" name="keep_input_file" checked> Use the input file for chain names of the earlier job (unless you upload one below)</label>
+        <label class="check" id="keep-reference-row" hidden><input type="checkbox" id="keep_reference_json" name="keep_reference_json" checked> Use the reference sequences of the earlier job (unless you upload a file below)</label>
+      </div>
+
+      <label for="threshold">Occupancy threshold for residue renumbering step</label>
+      <input type="number" id="threshold" name="threshold" min="1" max="100" value="80">
+      <p class="hint">Residue columns present in less than this percentage of the structures are numbered with letters (insertion codes). Default 80.</p>
+
+      <label for="input_file">Input file for chain names assigned to entities</label>
+      <div class="file-row"><input type="file" id="input_file" name="input_file" accept=".txt,text/plain">
+        <button type="button" class="secondary remove-file" data-for="input_file" aria-label="Remove the input file" hidden>Remove file</button></div>
+     <p class="hint">One entity per line, <code>ENTITY NAME:chainID,chainID,...</code> (one chain ID per copy), e.g. <code>TRIOSEPHOSPHATE ISOMERASE:A,Ab</code>.
+        Without it, the chains are named from the MMseqs2 clusters, and the generated <code>input_file.txt</code> is in the zip file: download it, edit it and upload it here to change the names.</p>
+
+      <label for="reference_json">Reference sequences for chain checking step</label>
+      <div class="file-row"><input type="file" id="reference_json" name="reference_json" accept=".json,application/json">
+        <button type="button" class="secondary remove-file" data-for="reference_json" aria-label="Remove the reference sequences file" hidden>Remove file</button></div>
+      <p class="hint">A JSON file <code>{"chain ID": "sequence", ...}</code>, like the <code>StandardSequences.json</code> written by the chain-checking step (in <code>standard_ChainID_bank/</code> of the zip file).
+        Without it, the Standard Sequences are the consensus of all the structures.</p>
+
+      <label for="exclude">Structures to leave out (Steps 2-5)</label>
+      <textarea id="exclude" name="exclude" rows="4" placeholder="e.g.&#10;1abc&#10;pdb_00002xyz+01.cif&#10;AF-P00780-F1+01.cif"></textarea>
+      <div class="file-row"><input type="file" id="exclude_file" name="exclude_file" accept=".txt,text/plain">
+        <button type="button" class="secondary remove-file" data-for="exclude_file" aria-label="Remove the list of structures to leave out" hidden>Remove file</button></div>
+      <p class="hint">Downloaded structures that should not be curated. Type them in the box and/or upload a text file: one or more per line, separated by spaces or commas (<code>#</code> starts a comment).
+        Give a file name of <code>clean_bank/</code> (<code>pdb_00001abc+01.cif</code>, with or without <code>.cif</code>), or a PDB ID (<code>1abc</code>) or entry (<code>pdb_00001abc</code>, <code>AF-P00780-F1</code>) to leave out all its assemblies.
+        They stay in <code>clean_bank/</code>, and <code>excluded_structures.txt</code> in the zip file lists what was left out and the names that matched nothing.
+        Without a list, all the structures are curated.</p>
+    </details>
+
+    <p id="rerun-plan" class="hint" hidden></p>
+    <p id="rerun-warning" class="warn" hidden></p>
+    <div class="actions">
+      <button type="submit" id="submit">Run curation</button>
+      <span id="form-error" class="error"></span>
+    </div>
+    <p class="hint retention-note">You get a job number: it is the only way to find your job again, and anyone who has it can view the job.
+      The job and its results are deleted <span class="retention-days">7</span> days after it ends.</p>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Check a job</h2>
+  <form id="check-form" class="check-row">
+    <input type="text" id="check-number" aria-label="Job number" placeholder="Job number, e.g. K7QF-2M9X-HT4P-WN8D" autocomplete="off" spellcheck="false" maxlength="40">
+    <button type="submit">Show job</button>
+  </form>
+  <p id="check-error" class="error"></p>
+</section>
+
+<section class="card" id="job-card" hidden>
+  <h2 id="job-title">Job</h2>
+  <div class="jobnumber" id="job-number-box">
+    <div class="row">Job number <span class="number" id="job-number"></span>
+      <button type="button" class="secondary" id="copy">Copy</button>
+      <span id="copy-done" class="hint" hidden>Copied</span></div>
+    <p>Save this number to check on your job later. It's the only way to find it again: anyone who has it can view and cancel the job.
+      You can also bookmark this page: <a id="job-link"></a></p>
+    <p id="job-expiry"></p>
+  </div>
+  <p id="job-summary" class="hint"></p>
+  <ol class="steps" id="steps"></ol>
+  <p id="job-error" class="error"></p>
+  <p id="job-files" class="hint" hidden></p>
+  <div class="actions">
+    <a class="button" id="download" hidden>Download zip file</a>
+    <button class="secondary" id="rerun" hidden>Change and rerun</button>
+    <button class="secondary" id="cancel" hidden>Cancel</button>
+  </div>
+</section>
+
+<section class="card" id="recent-card" hidden>
+  <h2>Recent jobs</h2>
+  <table>
+    <thead><tr><th>Keyword</th><th>Submitted</th><th>State</th><th></th></tr></thead>
+    <tbody id="jobs"><tr><td colspan="4" class="hint">No jobs yet.</td></tr></tbody>
+  </table>
+</section>
+
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let currentJob = null, currentData = null, timer = null, planTimer = null, config = {show_recent_jobs: false, retention_days: 7};
+
+function fmtTime(t) { return t ? new Date(t * 1000).toLocaleString() : ''; }
+function fmtDuration(s) {
+  if (s == null) return '';
+  s = Math.round(s);
+  return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + (s % 60) + ' s';
+}
+function el(tag, attrs = {}, text = '') {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text) e.textContent = text;
+  return e;
+}
+
+$('form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  $('form-error').textContent = '';
+  $('submit').disabled = true;
+  try {
+    const res = await fetch('/api/jobs', {method: 'POST', body: new FormData($('form'))});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    showJob(data.id);
+    if (config.show_recent_jobs) loadJobs();
+    if ($('parent').value.trim()) clearRerun();
+  } catch (err) {
+    $('form-error').textContent = err.message;
+  } finally {
+    $('submit').disabled = false;
+  }
+});
+
+$('csm').addEventListener('change', () => { $('csm-options').hidden = !$('csm').checked; });
+
+// "Remove file": a chosen file can be taken out again (a file input cannot be emptied otherwise)
+function clearFile(input) {
+  input.value = '';
+  input.dispatchEvent(new Event('change', {bubbles: true}));  // hides the button, updates the rerun plan
+}
+for (const button of document.querySelectorAll('.remove-file')) {
+  const input = $(button.dataset.for);
+  const update = () => { button.hidden = !input.files.length; };
+  input.addEventListener('change', update);
+  button.addEventListener('click', () => { clearFile(input); input.focus(); });
+  update();  // the browser may keep a file chosen before a reload
+}
+
+// -- Rerun of an earlier job: the server says from which step (POST /api/rerun-plan, nothing is created)
+const STEP_SHORT = {exclude: 'the exclusion step', molid: 'Step 3', chainid: 'Step 4', residueid: 'Step 5'};
+function schedulePlan() { clearTimeout(planTimer); planTimer = setTimeout(updatePlan, 400); }
+$('form').addEventListener('input', schedulePlan);
+$('form').addEventListener('change', schedulePlan);
+
+async function updatePlan() {
+  const rerun = !!$('parent').value.trim();
+  $('rerun-options').hidden = $('rerun-banner').hidden = !rerun;
+  $('form-title').textContent = rerun ? 'Change and rerun' : 'New curation';
+  $('submit').textContent = 'Run curation';
+  $('rerun-plan').hidden = $('rerun-warning').hidden = true;
+  if (!rerun) return;
+  let plan;
+  try {
+    const res = await fetch('/api/rerun-plan', {method: 'POST', body: new FormData($('form'))});
+    plan = await res.json();
+  } catch (err) { return; }
+  if (!$('parent').value.trim()) return;  // cleared meanwhile
+  if (plan.allowed_steps) {
+    for (const o of $('start_step').options)
+      o.disabled = o.value !== '' && !plan.allowed_steps.includes(o.value);
+    $('keep-input-row').hidden = !plan.parent_has_input_file;
+    $('keep-reference-row').hidden = !plan.parent_has_reference_json;
+  }
+  $('rerun-plan').hidden = false;
+  $('rerun-plan').className = plan.error ? 'error' : 'hint';
+  $('rerun-plan').textContent = plan.error || plan.message;
+  if (plan.warning) { $('rerun-warning').textContent = plan.warning; $('rerun-warning').hidden = false; }
+  if (plan.start_step) $('submit').textContent = 'Rerun from ' + STEP_SHORT[plan.start_step];
+}
+
+function clearRerun() {
+  $('parent').value = '';
+  $('start_step').value = '';
+  updatePlan();
+}
+$('rerun-clear').addEventListener('click', ev => { ev.preventDefault(); clearRerun(); });
+
+// "Change and rerun": the form with the settings of the job, to change some of them
+$('rerun').addEventListener('click', () => {
+  const job = currentData;
+  if (!job) return;
+  $('keyword').value = job.keyword;
+  $('csm').checked = !!job.csm;
+  $('csm-options').hidden = !job.csm;
+  $('max_models').value = job.max_models || '';
+  $('threshold').value = job.threshold;
+  $('exclude').value = (job.exclude || []).join('\n');
+  for (const id of ['input_file', 'reference_json', 'exclude_file']) clearFile($(id));
+  $('keep_input_file').checked = $('keep_reference_json').checked = true;
+  $('parent').value = job.number;
+  $('start_step').value = '';
+  $('form').querySelector('details').open = true;
+  updatePlan();
+  $('form').scrollIntoView({behavior: 'smooth', block: 'start'});
+});
+
+$('cancel').addEventListener('click', async () => {
+  if (!currentJob || !confirm('Cancel this job?')) return;
+  await fetch('/api/jobs/' + currentJob + '/cancel', {method: 'POST'});
+  refresh();
+});
+
+// Job numbers: 16 characters without look-alikes (no 0/O, 1/I/L), shown as K7QF-2M9X-HT4P-WN8D
+function normalizeNumber(text) { return (text || '').replace(/[\s-]/g, '').toUpperCase(); }
+function formatNumber(id) { return id.match(/.{1,4}/g).join('-'); }
+function jobUrl(id) { return location.origin + location.pathname + '?job=' + formatNumber(id); }
+
+$('check-form').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const id = normalizeNumber($('check-number').value);
+  $('check-error').textContent = /^[2-9A-HJKMNP-Z]{16}$/.test(id) ? '' :
+    'A job number has 16 letters and digits, e.g. K7QF-2M9X-HT4P-WN8D.';
+  if (!$('check-error').textContent) showJob(id);
+});
+
+$('copy').addEventListener('click', async () => {
+  const text = $('job-number').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {  // no clipboard (e.g. plain http from another computer): select it to copy by hand
+    const range = document.createRange(); range.selectNodeContents($('job-number'));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    if (!document.execCommand('copy')) return;
+  }
+  $('copy-done').hidden = false;
+  setTimeout(() => { $('copy-done').hidden = true; }, 2000);
+});
+
+function showJob(id) {
+  currentJob = normalizeNumber(id);
+  history.replaceState(null, '', '?job=' + formatNumber(currentJob));
+  $('job-card').hidden = false;
+  $('job-number-box').hidden = false;
+  $('job-title').textContent = 'Job';
+  $('job-number').textContent = formatNumber(currentJob);
+  $('job-link').textContent = $('job-link').href = jobUrl(currentJob);
+  for (const id of ['job-summary', 'job-expiry', 'job-error']) $(id).textContent = '';
+  $('steps').replaceChildren();
+  $('download').hidden = $('cancel').hidden = $('rerun').hidden = $('job-files').hidden = true;
+  currentData = null;
+  refresh();
+  $('job-card').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+async function refresh() {
+  clearTimeout(timer);
+  if (!currentJob) return;
+  let job;
+  try {
+    const res = await fetch('/api/jobs/' + currentJob);
+    job = await res.json();
+    if (res.status === 404) {
+      $('job-title').textContent = 'No job with this number';
+      $('job-number-box').hidden = true;
+      $('job-error').textContent = 'Check the job number ' + formatNumber(currentJob) + '.' + (config.retention_days ?
+        ' Jobs are deleted ' + config.retention_days + ' days after they end.' : '');
+      return;
+    }
+    if (!res.ok) throw new Error(job.error);
+  } catch (err) {
+    $('job-error').textContent = 'Cannot reach the server: ' + err.message;
+    timer = setTimeout(refresh, 5000);
+    return;
+  }
+  renderJob(job);
+  if (job.state === 'queued' || job.state === 'running') timer = setTimeout(refresh, 3000);
+  else if (config.show_recent_jobs) loadJobs();
+}
+
+function renderJob(job) {
+  $('job-title').textContent = 'Job: ' + job.keyword;
+  let summary = 'Submitted ' + fmtTime(job.submitted) + ' · threshold ' + job.threshold +
+    ' · computed models: ' + (job.csm ? (job.max_models ? 'up to ' + job.max_models : 'all') : 'no') +
+    ' · chain names: ' + (job.input_file ? 'your input file' : 'automatic (MMseqs2 clusters)') +
+    ' · reference sequences: ' + (job.reference_json ? 'your JSON file' : 'automatic (consensus)') +
+    ' · structures left out: ' + (job.exclude && job.exclude.length ? job.exclude.length + ' name(s) given' : 'none') +
+    (job.notify ? ' · an email will be sent when it ends' : '') +
+    (job.rerun ? ' · rerun of an earlier job from ' + job.rerun.start_title + ', reusing the structures downloaded on ' +
+      fmtTime(job.rerun.downloaded) : '');
+  if (job.state === 'queued') summary += ' · waiting, position ' + job.queue_position + ' in the queue';
+  if (job.state === 'running' && job.seqfile_stale)
+    summary += ' · downloading the PDB sequence file of this week\'s PDB release (~400 MB): this takes a few minutes';
+  $('job-summary').textContent = summary;
+  $('job-expiry').textContent = job.expires ?
+    'This job and its results will be deleted on ' + fmtTime(job.expires) +
+      (job.rerun ? ', with the earlier job whose downloads it reuses' : '') + '. Download the zip file before then.' :
+    (config.retention_days ? 'The job and its results will be deleted ' + config.retention_days + ' days after it ends.' : '');
+
+  const steps = $('steps');
+  steps.replaceChildren();
+  for (const s of job.steps) {
+    const li = el('li');
+    li.append(el('span', {class: 'badge ' + s.state}, s.state), el('span', {}, s.title));
+    if (s.summary) li.append(el('span', {class: 'summary'}, '(' + s.summary + ')'));
+    if (s.state !== 'pending' && s.state !== 'skipped' && s.key !== 'zip') {
+      const a = el('a', {href: '/api/jobs/' + job.id + '/log/' + s.key, target: '_blank'}, 'log');
+      li.append(' ', a);
+    }
+    const end = s.finished || (s.state === 'running' ? Date.now() / 1000 : null);
+    if (s.started && end) li.append(el('span', {class: 'time'}, fmtDuration(end - s.started)));
+    steps.append(li);
+  }
+  $('job-error').textContent = (job.state === 'failed' || job.state === 'cancelled') ? (job.error || job.state) : '';
+  $('download').hidden = !job.zip_ready;
+  $('download').href = '/api/jobs/' + job.id + '/download';
+  $('download').textContent = job.state === 'done' ? 'Download zip file' : 'Download zip file (partial results)';
+  $('cancel').hidden = !(job.state === 'queued' || job.state === 'running');
+  currentData = job;
+  $('rerun').hidden = !job.can_rerun;
+  const files = $('job-files');
+  files.replaceChildren();
+  if (job.files && job.files.length && job.state !== 'queued' && job.state !== 'running') {
+    files.append('Files to edit and upload again with "Change and rerun": ');
+    job.files.forEach((name, i) => {
+      if (i) files.append(' · ');
+      files.append(el('a', {href: '/api/jobs/' + job.id + '/file/' + name}, name));
+    });
+  }
+  files.hidden = !files.childNodes.length;
+}
+
+async function loadJobs() {
+  const res = await fetch('/api/jobs');
+  const data = await res.json();
+  const body = $('jobs');
+  body.replaceChildren();
+  if (!data.jobs.length) {
+    const tr = el('tr'); tr.append(el('td', {colspan: 4, class: 'hint'}, 'No jobs yet.')); body.append(tr);
+    return;
+  }
+  for (const job of data.jobs) {
+    const tr = el('tr');
+    const open = el('a', {}, job.keyword);
+    open.addEventListener('click', () => showJob(job.id));
+    const name = el('td'); name.append(open);
+    const state = el('td'); state.append(el('span', {class: 'badge ' + job.state}, job.state));
+    const dl = el('td');
+    if (job.zip_ready) dl.append(el('a', {href: '/api/jobs/' + job.id + '/download'}, 'zip'));
+    tr.append(name, el('td', {}, fmtTime(job.submitted)), state, dl);
+    body.append(tr);
+  }
+}
+
+async function start() {
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) config = await res.json();
+  } catch (err) { /* keep the defaults */ }
+  for (const e of document.querySelectorAll('.retention-days')) e.textContent = config.retention_days;
+  if (!config.retention_days) for (const e of document.querySelectorAll('.retention-note'))
+    e.textContent = 'You get a job number: it is the only way to find your job again, and anyone who has it can view the job.';
+  $('recent-card').hidden = !config.show_recent_jobs;
+  if (config.show_recent_jobs) loadJobs();
+  const limits = [];
+  if (config.max_entries) limits.push('keywords that match more than ' + config.max_entries.toLocaleString('en-US') + ' PDB entries are not accepted');
+  if (config.job_timeout_hours) limits.push('a job is stopped after ' + config.job_timeout_hours + ' hours');
+  if (limits.length) $('limits-note').textContent = ' On this server, ' + limits.join(', and ') + '.';
+  if (config.max_csm) {
+    $('max_models').max = config.max_csm;
+    $('max_models').placeholder = config.max_csm;
+    $('max-models-hint').textContent = 'Best matches first. Leave blank for the most this server allows, ' + config.max_csm + '.';
+  }
+  const id = new URLSearchParams(location.search).get('job') || location.hash.slice(1);
+  if (id) showJob(id);
+}
+start();
+</script>
+</body>
+</html>

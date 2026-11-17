@@ -495,18 +495,19 @@ def clustering(clusteringStorage, seqres_file):
 
     output_directory = f"{clusteringStorage}"
 
-    print("cwd:", os.getcwd())
-    print("entity_seqres:", seqres_file)
-    print("absolute:", os.path.abspath(seqres_file))
+    # MMseqs2 runs in output_directory, so it gets the sequence file relative to it: no full path in
+    # the output (on the CIFcurator server, the full path holds the job number)
+    seqres_from_output = os.path.relpath(seqres_file, output_directory)
+    print("entity_seqres:", os.path.basename(seqres_file))
     print("exists:", os.path.exists(seqres_file))
 
-    os.chdir(output_directory)
     try:
+        os.chdir(output_directory)
 
         # 1. Create DB
         print("Creating MMseqs2 database...")
         subprocess.run(
-            ["mmseqs", "createdb", seqres_file, db_prefix], check=True
+            ["mmseqs", "createdb", seqres_from_output, db_prefix], check=True
         )
 
         # 2. Cluster

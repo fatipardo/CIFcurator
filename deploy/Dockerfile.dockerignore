@@ -1,0 +1,9 @@
+# Only scripts/, src/ and server/ (+ deploy/environment-server.yml) go into the image
+**
+!scripts/
+!src/
+!server/
+!deploy/environment-server.yml
+server/server_data/
+**/__pycache__/
+**/*.pyc

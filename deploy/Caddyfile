@@ -1,0 +1,10 @@
+# HTTPS in front of the CIFcurator server. Caddy gets and renews the certificate (Let's Encrypt)
+# for SITE_ADDRESS by itself; ports 80 and 443 must be open.
+{$SITE_ADDRESS} {
+	encode gzip
+	# The server refuses uploads over 20 MB; stop larger ones here
+	request_body {
+		max_size 25MB
+	}
+	reverse_proxy cifcurator:8000
+}
