@@ -693,7 +693,7 @@ def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
 
     print("\nRNA/DNA and protein clustering stages completed.")
 
-def resolve_polymeric_chain_concatenations(master_molID_class_list):
+def resolve_polymeric_chain_concatenations(master_molID_class_list, output_path):
     """
     Filters polymer entities and processes their chain concatenations file by file,
     renaming and updating their mapped chain IDs based on concatenation order.
@@ -734,27 +734,54 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list):
 
     if not file_dict: return master_molID_class_list # If the dictionary is empty, return
     # Process and rename chains file by file
+    renamed_count = 0
     for file_name in sorted(file_dict.keys()):
-        # Sorting dictionary by chain -> concat order
         sorted_file_entries = sorted(file_dict[file_name], key=lambda x: (x[0], x[1]))
 
-        place_holder_chain = ""
+        file_molID_objs = [m for m in master_molID_class_list if m.file_name == file_name]
+        used_chains = set()
+        for m in file_molID_objs:
+            used_chains.update(m.chID_newchID_map.values())
+
         for curr_chain, concat_idx, molID, chID, molID_class in sorted_file_entries:
             if int(concat_idx) == 1:
-                place_holder_chain = curr_chain
+                new_chain = curr_chain
+            else:
+                suffix_idx = int(concat_idx) - 1
+                new_chain = f"{curr_chain}{get_combination(suffix_idx)}"
+                while new_chain in used_chains:
+                    suffix_idx += 1
+                    new_chain = f"{curr_chain}{get_combination(suffix_idx)}"
 
-            combo = get_combination(int(concat_idx - 1))
+            if new_chain != curr_chain:
+                renamed_count += 1
 
-            # Using place_holder_chain (or curr_chain) as the base to construct the new chain name
-            new_chain = f"{curr_chain}{combo}"
-
-            # Update the mapping in the corresponding MolID object
+            used_chains.add(new_chain)
             molID_class.chID_newchID_map[chID] = new_chain
 
-        # After modifying the mappings for this file, we recalculate its concatenation states
+        for molID_class in file_molID_objs:
+            molID_class.check_for_concatenations()
+
+    # Writting updated input file if there are chain changes
+    if output_path:
+        max_chains_per_entity = {}
         for molID_class in master_molID_class_list:
-            if molID_class.file_name == file_name:
-                molID_class.check_for_concatenations()
+            for ent_id, ent_name in molID_class.entity_name_map.items():
+                old_chains = molID_class.molID_chID.get(ent_name, [])
+                updated_chains = [molID_class.chID_newchID_map[ch] for ch in old_chains]
+
+                if ent_name not in max_chains_per_entity or len(updated_chains) > len(max_chains_per_entity[ent_name]):
+                    max_chains_per_entity[ent_name] = updated_chains
+
+        with open(output_path, "w") as out_f:
+            for ent_name in sorted(max_chains_per_entity.keys()):
+                chains_str = ",".join(max_chains_per_entity[ent_name])
+                out_f.write(f"{ent_name}:{chains_str}\n")
+
+        print(f"Resolved {renamed_count} polymeric chain collision(s) across {len(file_dict)} file(s). ")
+        print(f"Updated chain mapping saved to '{output_path}'.")
+
+        print(f"Saved updated entity-to-chain mapping to '{output_path}'")
 
     return master_molID_class_list
 

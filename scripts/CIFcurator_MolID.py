@@ -123,7 +123,20 @@ while(input_menu != "QUIT"):
             master_molID_class_list = molidutils.update_masterlist(master_molID_class_list, molIDConversion_list)
             count_problems = molidutils.problem_counter(master_molID_class_list)
             if (count_problems != 0):
-                master_molID_class_list = cifcluster.resolve_polymeric_chain_concatenations(master_molID_class_list)
+                master_molID_class_list = cifcluster.resolve_polymeric_chain_concatenations(master_molID_class_list, f"{projdir}/updated_input_file.txt")
+
+                # Added additional check
+                for molID_class in master_molID_class_list:
+                    for ent_id, ent_type in molID_class.entity_type_map.items():
+                        if ent_type == 'polymer':
+                            ent_name = molID_class.entity_name_map[ent_id]
+                            for chID in molID_class.molID_chID.get(ent_name, []):
+                                if not molID_class.complete_order.get(chID, True):
+                                    raise RuntimeError(
+                                        f"Unresolved polymer chain collision in {molID_class.file_name}: "
+                                        f"chain {chID} ({ent_name}) -> {molID_class.chID_newchID_map[chID]}"
+                                    )
+
                 allnewchains = molidutils.return_unassigned_conversion(master_molID_class_list, step='concatenation')
                 for newchain in allnewchains:
                     master_molID_class_list = molidutils.list_accept_concatenations_auto(
