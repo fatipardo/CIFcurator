@@ -773,11 +773,14 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list, output_path)
     # Writting updated input file if there are chain changes
     if output_path:
         max_chains_per_entity = {}
+        duplicate_entities = []
         for molID_class in master_molID_class_list:
             for ent_id, ent_name in molID_class.entity_name_map.items():
                 old_chains = molID_class.molID_chID.get(ent_name, [])
                 updated_chains = [molID_class.chID_newchID_map[ch] for ch in old_chains]
 
+                if ent_name in max_chains_per_entity:
+                    duplicate_entities.append([ent_name])
                 if ent_name not in max_chains_per_entity or len(updated_chains) > len(max_chains_per_entity[ent_name]):
                     max_chains_per_entity[ent_name] = updated_chains
 
@@ -1022,12 +1025,11 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
 
     # 1. INITIALIZATION & DATA EXTRACTION
     clustering_directory = f"{project_dir}/clustering_storage/"
-    entity_type_structure = {}
     chain_entity_info = {}
     polymers = {}
     nonpolymers = {}
-    conflict_type = []
-    # I basically just do nothing about the conflicts
+
+    # Creating chain_entity_info = {ENTITY1 : 3} <- chain count
     for molIDConversion in current_list:
         molIDConversion.check_for_completeness()
         if not molIDConversion.complete:
@@ -1035,37 +1037,20 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
             entity_name = str(molIDConversion.molID)
             chain_entity_info[entity_name] = chain_count
 
+    # Populating polymers{} and nonpolymers{}
     for i in master_molID_class_list:
-        polymer_entity = set()
-        non_polymer_entity = set()
-        structure = os.path.basename(i.file_name)
-
         for entid in i.entity_type_map:
             entity_name = i.entity_name_map[entid]
             entity_type = i.entity_type_map[entid]
-            if entity_type == 'polymer':
-                polymer_entity.add(entity_name)
-                if entity_name in nonpolymers:
-                    conflict_type.append(entity_name)
-                else:
-                    polymers[entity_name] = 'polymer'
-            else:
-                non_polymer_entity.add(entity_name)
-                if entity_name in polymers:
-                    conflict_type.append(entity_name)
-                else:
-                    nonpolymers[entity_name] = 'nonpolymer'
 
-        entity_type_structure[structure] = {
-            'polymer': polymer_entity,
-            'nonpolymer': non_polymer_entity
-        }
+            if entity_type == 'polymer': polymers[entity_name] = 'polymer'
+            else: nonpolymers[entity_name] = 'nonpolymer'
 
     # 2. SEQUENCE & CLUSTER MAPPINGS
     pdbchid = get_attributes_seqres(f"{clustering_directory}/sub_seqres.txt", attribute='PDBID_CHID')
     entity_names = get_attributes_seqres(f"{clustering_directory}/sub_seqres.txt", attribute='ENTITY_LABEL')
 
-    pdb_entry_to_entity = dict(zip(pdbchid, entity_names))
+    pdb_entry_to_entity = dict(zip(pdbchid, entity_names)) # pdbid_chid : ent1
 
     # 3. CHAIN LABEL ASSIGNMENT (based on clustering)
     n = 0
@@ -1075,85 +1060,91 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
     for rep, mem_list in cluster_pdbchids.items():
 
         non_outlier_members = [mem for mem in mem_list if mem not in outlier_case_entries]
+
         if non_outlier_members:
             cluster_label = get_label(n)
+            # This is the chain that will represent the entire cluster group
 
             for mem in non_outlier_members:
                 chain_labels[mem] = cluster_label
+                # We assign each cluster member with that chain
 
-            n += 1  # Increment once per cluster
+            n += 1  # After we are done with the cluster, we
+                    # increment to change chain label for the next cluster
 
     # 3b. Assign labels to unique outlier entities
-    # Tracks the chain label assigned to each entity
-    entity_chain_labels = {}
+    entity_chain_labels = {} # ENT1 : chain
+    for pass_type in ("polymer", "nonpolymer"):
+        for entry, entities in outlier_case_entries.items(): # {PDB_CHID : [ENT1, ENT2]}
+            for entity in entities:
+                is_polymer = entity in polymers
+                if (pass_type == "polymer" and not is_polymer) or (
+                        pass_type == "nonpolymer" and is_polymer
+                ):
+                    continue
 
-    for entry, entities in outlier_case_entries.items():
+                # Assign a new label only if this entity has not been encountered
+                if entity not in entity_chain_labels:
+                    entity_chain_labels[entity] = get_label(n)
+                    n += 1
 
-        for entity in entities:
+                # Reuse the entity's existing label for every PDB chain ID
+                if entry not in chain_labels:
+                    chain_labels[entry] = entity_chain_labels[entity] # pdb_chid : chain
 
-            # Assign a new label only if this entity has not been encountered
-            if entity not in entity_chain_labels:
-                entity_chain_labels[entity] = get_label(n)
-                n += 1
-
-            # Reuse the entity's existing label for every PDB chain ID
-            if entry not in chain_labels:
-                chain_labels[entry] = entity_chain_labels[entity]
-
-
-    #get_combination
     final_chain_set = {}
 
-    # 4. Build the final entity-to-chains mapping safely
-    # We group chains by entity name using the cluster labels we generated
-    entity_to_assigned_chains = {}
-
-    # First, collect non-outlier entity assignments
+    # 4. BUILDING FINAL ENTITY-TO-CHAINS MAPPING
+    entity_to_assigned_chains = {} # ENT1 : chain
     for entry, chain in chain_labels.items():
 
+        # Working with the entries that aren't outliers
         if entry not in outlier_case_entries and entry in pdb_entry_to_entity:
             entity_name = pdb_entry_to_entity[entry]
+            entity_to_assigned_chains.setdefault(entity_name, chain)
 
-            if entity_name not in conflict_type:
-                entity_to_assigned_chains.setdefault(entity_name, chain)
-
-    # Then, collect outlier entity assignments directly
-    # This ensures that multiple entities associated with outliers
-    # are not lost when constructing the final mapping.
+    # Now we work with the outliers
     for entity, chain in entity_chain_labels.items():
+        entity_to_assigned_chains.setdefault(entity, chain)
 
-        if entity not in conflict_type:
-            entity_to_assigned_chains.setdefault(entity, chain)
+    # Splitting the full chain assignment by polymer and nonpolymers to
+    # ensure that polymers get assigned the chains first
 
-    # We need to add some sort of case where if the chains get concatenated, we then do the old code
+    # We're building the full polymer chain assignments -> polymer_ent : [A, Ab..]
     for entity_name, base_chain in entity_to_assigned_chains.items():
-        count = chain_entity_info.get(entity_name, 1)
         if entity_name in polymers:
+            count = chain_entity_info.get(entity_name, 1)
             final_chain_set[entity_name] = [
                 f"{base_chain}{get_combination(i)}"
                 for i in range(count)
             ]
-        else:
+
+    # We're building the non-polymer chain assignments -> nonpolymer_ent : [A, A..]
+    for entity_name, base_chain in entity_to_assigned_chains.items():
+        if entity_name not in polymers:
+            count = chain_entity_info.get(entity_name, 1)
             final_chain_set[entity_name] = [base_chain] * count
 
+
     # 5. Fallback for any unclustered entities (polymers and non-polymers)
-    all_entities = {**polymers, **nonpolymers}
-    for entity_name in all_entities:
+    for entity_name in polymers:
         if entity_name not in final_chain_set and entity_name in chain_entity_info:
             count = chain_entity_info[entity_name]
             label = get_label(n)
             n += 1
+            final_chain_set[entity_name] = [
+                f"{label}{get_combination(i)}"
+                for i in range(count)
+            ]
 
-            if entity_name in polymers:
-                final_chain_set[entity_name] = [
-                    f"{label}{get_combination(i)}"
-                    for i in range(count)
-                ]
-            else:
-                final_chain_set[entity_name] = [label] * count
+    for entity_name in nonpolymers:
+        if entity_name not in final_chain_set and entity_name in chain_entity_info:
+            count = chain_entity_info[entity_name]
+            label = get_label(n)
+            n += 1
+            final_chain_set[entity_name] = [label] * count
 
-    final_chain_set = dict(sorted(final_chain_set.items()))
-    
+    final_chain_set = dict(sorted(final_chain_set.items())) #Sorting by entity name
     # 6. FILE WRITING
     output_file_path = f"{project_dir}/input_file.txt"
     with open(output_file_path, "w") as f:
