@@ -1299,7 +1299,7 @@ def run_clustering_pipeline(filelist, project_dir, seqres_file):
     
     for file in filelist:
         name = file.split('/')[-1] # pdb_00007qom+01.cif
-        pdb_id = (name.split('+')[0]).upper()
+        pdb_id = os.path.splitext(name)[0].split('+')[0].upper()
         PDB_ID_list.append(pdb_id)
 
     writing_entity_FASTA(clustering_directory, seqres_dict, PDB_ID_list)
