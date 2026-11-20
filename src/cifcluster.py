@@ -693,31 +693,41 @@ def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
 
     print("\nRNA/DNA and protein clustering stages completed.")
 
-def resolve_polymeric_chain_concatenations(master_molID_class_list, output_path):
+def resolve_polymeric_chain_concatenations(master_molID_class_list, project_dir):
     """
-    Filters polymer entities and processes their chain concatenations file by file,
-    renaming and updating their mapped chain IDs based on concatenation order.
+    Resolves polymeric chain concatenations file by file, checks for
+    polymer/non-polymer chain ID overlaps with user confirmation, and writes
+    updated mapping and diagnostic files.
 
     Parameters
     ----------
     master_molID_class_list (list): A list of MolID class objects representing
                                     entity and chain information across CIF files.
+    project_dir (str): Path to the project directory where ``updated_input_file.txt``
+                       and optional diagnostic logs (``polymer_nonpolymer_collisions.txt``
+                       and ``per_file_entity_chain_differences.txt``) are written.
 
     Returns
     -------
-    list
-        The updated master list of MolID class objects with modified chain ID mappings.
+    tuple of (list, bool)
+        - Updated ``master_molID_class_list`` with modified chain ID mappings.
+        - ``returned_to_menu`` flag (``True`` if the user declined overlapping
+          polymer/non-polymer concatenations and returned to the main menu,
+          ``False`` otherwise).
     """
-    # Finding the entities that are Polymers
-    polymers = {}
+    # 1. FINDING POLYMER AND NON-POLYMER ENTITIES
+    polymers = set()
+    nonpolymers = set()
+
     for i in master_molID_class_list:
         for entid in i.entity_type_map:
             entity_name = i.entity_name_map[entid]
             entity_type = i.entity_type_map[entid]
 
-            if entity_type == 'polymer':
-                polymers[entity_name] = 'polymer'
+            if entity_type == 'polymer': polymers.add(entity_name)
+            else: nonpolymers.add(entity_name)
 
+    # 2. FINDING POLYMERIC CONCATENATIONS
     # Structure: file_dict[file_name] = list of tuples (new_chain, concat_idx, molID, chID)
     file_dict = defaultdict(list)
 
@@ -732,69 +742,162 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list, output_path)
                         # Keep track of old chain (chID) or molID if needed for mapping
                         file_dict[file_name].append((curr_chain, concat_idx, molID, chID, molID_class))
 
-    if not file_dict: return master_molID_class_list # If the dictionary is empty, return
-    # Process and rename chains file by file
+    # 3. RE-NAMING POLYMERIC CHAINS AFFECTED BY CONCATENATION
     renamed_count = 0
-    for file_name in sorted(file_dict.keys()):
-        sorted_file_entries = sorted(file_dict[file_name], key=lambda x: (x[0], x[1]))
+    if file_dict:
+        for file_name in sorted(file_dict.keys()):
+            sorted_file_entries = sorted(file_dict[file_name], key=lambda x: (x[0], x[1]))
 
-        file_molID_objs = [m for m in master_molID_class_list if m.file_name == file_name]
-        used_chains = set()
-        for m in file_molID_objs:
-            used_chains.update(m.chID_newchID_map.values())
+            file_molID_objs = [m for m in master_molID_class_list if m.file_name == file_name]
+            used_chains = set()
+            for m in file_molID_objs:
+                used_chains.update(m.chID_newchID_map.values())
 
-        nonpolymer_destinations = {
-            m.chID_newchID_map[old]
-            for m in file_molID_objs
-            for entity, old_chains in m.molID_chID.items()
-            if entity not in polymers
-            for old in old_chains
-        }
+            nonpolymer_destinations = {
+                m.chID_newchID_map[old]
+                for m in file_molID_objs
+                for entity, old_chains in m.molID_chID.items()
+                if entity not in polymers
+                for old in old_chains
+            }
 
-        for curr_chain, concat_idx, molID, chID, molID_class in sorted_file_entries:
-            if int(concat_idx) == 1 and curr_chain not in nonpolymer_destinations:
-                new_chain = curr_chain
-            else:
-                suffix_idx = max(1, int(concat_idx) - 1)
-                new_chain = f"{curr_chain}{get_combination(suffix_idx)}"
-                while new_chain in used_chains:
-                    suffix_idx += 1
+            for curr_chain, concat_idx, molID, chID, molID_class in sorted_file_entries:
+                if int(concat_idx) == 1 and curr_chain not in nonpolymer_destinations:
+                    new_chain = curr_chain
+                else:
+                    suffix_idx = max(1, int(concat_idx) - 1)
                     new_chain = f"{curr_chain}{get_combination(suffix_idx)}"
+                    while new_chain in used_chains:
+                        suffix_idx += 1
+                        new_chain = f"{curr_chain}{get_combination(suffix_idx)}"
 
-            if new_chain != curr_chain:
-                renamed_count += 1
+                if new_chain != curr_chain:
+                    renamed_count += 1
 
-            used_chains.add(new_chain)
-            molID_class.chID_newchID_map[chID] = new_chain
+                used_chains.add(new_chain)
+                molID_class.chID_newchID_map[chID] = new_chain
 
-        for molID_class in file_molID_objs:
-            molID_class.check_for_concatenations()
+            for molID_class in file_molID_objs:
+                molID_class.check_for_concatenations()
 
-    # Writting updated input file if there are chain changes
-    if output_path:
-        max_chains_per_entity = {}
-        duplicate_entities = []
-        for molID_class in master_molID_class_list:
-            for ent_id, ent_name in molID_class.entity_name_map.items():
-                old_chains = molID_class.molID_chID.get(ent_name, [])
-                updated_chains = [molID_class.chID_newchID_map[ch] for ch in old_chains]
+    #4. FINDING POTENTIAL POLYMERIC AND NON-POLYMERIC CONCATENATIONS
+    # Note: this would only ever occur if the user enters their own input file
+    for molID_class in master_molID_class_list:
+        molID_class.check_for_concatenations()
 
-                if ent_name in max_chains_per_entity:
-                    duplicate_entities.append([ent_name])
-                if ent_name not in max_chains_per_entity or len(updated_chains) > len(max_chains_per_entity[ent_name]):
-                    max_chains_per_entity[ent_name] = updated_chains
+    polymer_chain_sources = defaultdict(list)
+    seen_polymer_sources = set()
+    for m in master_molID_class_list:
+        file_name = m.file_name
+        for entity, chains in m.molID_chID.items():
+            if entity in polymers:
+                for ch in chains:
+                    if ch in m.chID_newchID_map:
+                        dest_chain = m.chID_newchID_map[ch]
+                        key = (file_name, dest_chain, entity, ch)
+                        if key not in seen_polymer_sources:
+                            seen_polymer_sources.add(key)
+                            polymer_chain_sources[(file_name, dest_chain)].append((entity, ch))
 
-        with open(output_path, "w") as out_f:
-            for ent_name in sorted(max_chains_per_entity.keys()):
-                chains_str = ",".join(max_chains_per_entity[ent_name])
-                out_f.write(f"{ent_name}:{chains_str}\n")
+    overlaps = []
+    seen_overlaps = set()
+    for m in master_molID_class_list:
+        file_name = m.file_name
+        for entity, chains in m.molID_chID.items():
+            if entity not in polymers:
+                for ch in chains:
+                    dest_chain = m.chID_newchID_map.get(ch)
+                    if (file_name, dest_chain) in polymer_chain_sources:
+                        overlap_key = (file_name, entity, ch, dest_chain)
+                        if overlap_key not in seen_overlaps:
+                            seen_overlaps.add(overlap_key)
+                            overlaps.append(overlap_key)
 
-        print(f"Resolved {renamed_count} polymeric chain collision(s) across {len(file_dict)} file(s). ")
-        print(f"Updated chain mapping saved to '{output_path}'.")
+    # IF POLY AND NONPOLY CONCATENATIONS ARE FOUND, USERS CAN EITHER ACCEPT THEM OR GO BACK
+    if overlaps:  # IF there are concatenations between polymers and non-polymeris
+        concat_answer = input(
+            "WARNING: If you are using a custom input file, polymeric and "
+            "non-polymeric chains may share a chain ID and concatenate. "
+            "Would you like to accept this behavior?(y/n)\n"
+        ).lower().strip()
+        if concat_answer == "y":
+            collision_log_path = f"{project_dir}/polymer_nonpolymer_collisions.txt"
+            with open(collision_log_path, "w") as f:
+                f.write(
+                    "structure_path:polymeric_entity:polymeric_chain:nonpolymeric_entity:nonpolymeric_chain:shared_chain\n")
+                for file_name, entity, ch, dest_chain in overlaps:
+                    for poly_ent, poly_ch in polymer_chain_sources[(file_name, dest_chain)]:
+                        line = f"{file_name}:{poly_ent}:{poly_ch}:{entity}:{ch}:{dest_chain}\n"
+                        f.write(line)
 
-        print(f"Saved updated entity-to-chain mapping to '{output_path}'")
+            print(
+                f"Logged potential polymer and non-polymer chain collisions to "
+                f"'{collision_log_path}' for your review.\n"
+            )
 
-    return master_molID_class_list
+        else:
+            print("Returning to the main menu...")
+            return master_molID_class_list, True
+
+    #5. WRITING INPUT FILE WITH UPDATED CHAINS (this is purely for keeping track of changes)
+    max_chains_per_entity = {}
+    duplicate_entities = []
+    entity_file_mappings = defaultdict(list)
+    seen_file_entity_map = set()
+
+    for molID_class in master_molID_class_list:
+        file_name = molID_class.file_name
+        for ent_id, ent_name in molID_class.entity_name_map.items():
+            old_chains = molID_class.molID_chID.get(ent_name, [])
+            updated_chains = [molID_class.chID_newchID_map[ch] for ch in old_chains]
+            if not updated_chains:
+                continue
+
+            entry_key = (ent_name, file_name, tuple(updated_chains))
+            if entry_key not in seen_file_entity_map:
+                seen_file_entity_map.add(entry_key)
+                entity_file_mappings[ent_name].append((file_name, updated_chains))
+
+            if ent_name in max_chains_per_entity:
+                duplicate_entities.append([ent_name])
+            if ent_name not in max_chains_per_entity or len(updated_chains) > len(max_chains_per_entity[ent_name]):
+                max_chains_per_entity[ent_name] = updated_chains
+
+    # Check if any entity has differing chain assignments across structures
+    differing_entities = {
+        ent_name: records
+        for ent_name, records in entity_file_mappings.items()
+        if len({tuple(chains) for _, chains in records}) > 1
+    }
+
+    with open(f"{project_dir}/updated_input_file.txt", "w") as out_f:
+        for ent_name in sorted(max_chains_per_entity.keys()):
+            chains_str = ",".join(max_chains_per_entity[ent_name])
+            out_f.write(f"{ent_name}:{chains_str}\n")
+
+    print(f"Resolved {renamed_count} polymeric chain collision(s) across {len(file_dict)} file(s). ")
+    print(f"Updated chain mapping saved to '{project_dir}/updated_input_file.txt'")
+
+
+    if differing_entities:
+        diff_log_path = f"{project_dir}/per_file_entity_chain_differences.txt"
+        with open(diff_log_path, "w") as diff_f:
+            diff_f.write(
+                "The following structures have differing chain assignments for the same entity "
+                "and could not all be represented in updated_input_file.txt:\n"
+                "structure_path,entity_name,chains\n"
+            )
+            for ent_name in sorted(differing_entities.keys()):
+                for file_name, chains in differing_entities[ent_name]:
+                    chains_formatted = ", ".join(chains)
+                    diff_f.write(f"{file_name}:{ent_name}:[{chains_formatted}]\n")
+
+        print(
+            f"WARNING: Found differing per-file chain assignments for {len(differing_entities)} "
+            f"entity(ies). Logged details to '{diff_log_path}'."
+        )
+
+    return master_molID_class_list, False
 
 def finding_problematic_cluster_results(clustering_directory):
     """

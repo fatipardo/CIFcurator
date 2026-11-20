@@ -25,19 +25,23 @@ Conversion Build Menu:
   4) Generate input file
          From the clustering information, an input file is generated for the user
   5) Continue to next step of curation
-         Shown once every entity has all its chain IDs. Writes
-         OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
+         Shown once every entity has all its chain IDs.
+         and writes Write OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
          (original_chain_names:new_chain_names:entity_name:number_of_files:file_name).
   QUIT   Exit without writing CIF files.
 
-Entities given the same chain ID in a file are concatenated into one chain, and these
-concatenations are accepted automatically with option 5. When two polymer chains would be
-concatenated, they get different chain IDs instead (A, Ab, ...), and the corrected chain IDs
-are saved in {projdir}/updated_input_file.txt. Then option 6) Finalize Curation writes the
-CIF files to target_dir.
+After option 5, if no two entities share a chain ID, option 6) Finalize Curation writes the
+CIF files to target_dir. Otherwise the Concatenations Menu appears: entities with the same
+chain ID will be concatenated into one chain, and each concatenation must be accepted first:
+  1) Show all conversions
+  2) Show only unaccepted concatenations
+  3) Search and modify destination chainIDs of proposed concatenations
+  4) Accept proposed concatenation one by one
+  5) Accept ALL (make sure you agree with all concatenations)
+  6) Finalize Curation
 
 The answers can also be given on standard input, for example:
-  printf '4\n3\ninput_file.txt\n5\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank .
+  printf '3\nTIM_input_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank
 """
 
 from __future__ import print_function
@@ -70,7 +74,7 @@ seqfile = args.seqfile if args.seqfile is not None else projdir+'/seqres.txt'
 #########################################
 
 filelist=glob.glob(source_dir+'/*.cif')
-cifcluster.run_clustering_pipeline(filelist, projdir, seqfile)
+#cifcluster.run_clustering_pipeline(filelist, projdir, seqfile)
 cluster_pdbchids, outlier_case_entries = cifcluster.finding_problematic_cluster_results(f"{projdir}/clustering_storage/")
 master_molID_class_list = molidutils.pdb_to_masterlist(filelist)
 unique_molID_occur_map  = molidutils.CreateMasterUniqueMolIDMap(master_molID_class_list)
@@ -91,7 +95,7 @@ while(input_menu != "QUIT"):
     if (input_menu_complete == "1"):
         print("""Congratulations! You have successfully constructed your
                  conversion templates. You can proceed to the next section
-                 by selecting option 5 or, continue to edit your conversion
+                 by selection option 7 or, continue to edit your conversion
                  template through this menu
               """)
     print("""CIFcurator MolID Conversion Build Menu
@@ -119,7 +123,10 @@ while(input_menu != "QUIT"):
             master_molID_class_list = molidutils.update_masterlist(master_molID_class_list, molIDConversion_list)
             count_problems = molidutils.problem_counter(master_molID_class_list)
             if (count_problems != 0):
-                master_molID_class_list = cifcluster.resolve_polymeric_chain_concatenations(master_molID_class_list, f"{projdir}/updated_input_file.txt")
+                master_molID_class_list, returned_to_menu = cifcluster.resolve_polymeric_chain_concatenations(master_molID_class_list, projdir)
+                if returned_to_menu:
+                    input_menu_complete = molidutils.check_complete(molIDConversion_list)
+                    continue
 
                 # Added additional check
                 for molID_class in master_molID_class_list:
