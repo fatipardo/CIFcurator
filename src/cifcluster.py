@@ -129,8 +129,7 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
     attribute = attribute.upper()
     pdb_id_filter = cif.upper()[:12] if cif else None
 
-    # Had to add the encoding parameter due to an error that kept occuring when reading the file.
-    with open(file_path, 'r', encoding='latin-1') as seqres:
+    with open(file_path, 'r') as seqres:
         for i, line in enumerate(seqres):
 
             if i % 2 == 0:
