@@ -74,7 +74,7 @@ seqfile = args.seqfile if args.seqfile is not None else projdir+'/seqres.txt'
 #########################################
 
 filelist=glob.glob(source_dir+'/*.cif')
-#cifcluster.run_clustering_pipeline(filelist, projdir, seqfile)
+cifcluster.run_clustering_pipeline(filelist, projdir, seqfile)
 cluster_pdbchids, outlier_case_entries = cifcluster.finding_problematic_cluster_results(f"{projdir}/clustering_storage/")
 master_molID_class_list = molidutils.pdb_to_masterlist(filelist)
 unique_molID_occur_map  = molidutils.CreateMasterUniqueMolIDMap(master_molID_class_list)
