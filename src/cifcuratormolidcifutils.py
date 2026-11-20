@@ -811,6 +811,7 @@ def add_user_conversion(molIDConversion_list):
         # of convenience to the user
         for key in user_molID_chID_map:
             if (str(key)==str(molIDConversion.molID)):
+                molIDConversion.chID_list = []
                 molIDConversion.add_chID_list(user_molID_chID_map[key])
         molIDConversion.check_for_completeness()
     # !! molIDConversion_list has been updated

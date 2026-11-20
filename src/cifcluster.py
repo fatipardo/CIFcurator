@@ -134,10 +134,8 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
         for i, line in enumerate(seqres):
 
             if i % 2 == 0:
-                if attribute == "HEADER":
-                    attribute_list.append(line.strip())
-
                 meta_data_parts = line.split()
+
                 pdb_id = meta_data_parts[0].split('_') # >PDB_0000100D_A -> [>PDB, 0000100D, A]
                 pdb_id = (pdb_id[0][1:] + "_" + pdb_id[1]).upper()# PDB_0000100D
                 mol_id = meta_data_parts[1].strip()
@@ -147,6 +145,9 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
 
                 if pdb_id_filter and pdb_id != pdb_id_filter:
                     continue
+
+                elif attribute == "HEADER":
+                    attribute_list.append(line.strip())
 
                 elif attribute == 'ENTITY_LABEL':
                     attribute_list.append(entity_name)
