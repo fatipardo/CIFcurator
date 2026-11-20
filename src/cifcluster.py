@@ -1250,6 +1250,11 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
     final_chain_set = dict(sorted(final_chain_set.items())) #Sorting by entity name
     # 6. FILE WRITING
     output_file_path = f"{project_dir}/input_file.txt"
+    if os.path.exists(output_file_path):
+        overwrite = input(f"{output_file_path} already exists. Overwrite it? (y/N): ").strip().lower()
+        if overwrite not in ('y', 'yes'):
+            print(f"Kept existing mapping at {output_file_path}")
+            return
     with open(output_file_path, "w") as f:
         for key, val_list in final_chain_set.items():
             joined_values = ",".join(val_list)
