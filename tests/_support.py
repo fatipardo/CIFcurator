@@ -106,7 +106,7 @@ def run_script(script, args, answers, cwd, log_path, timeout=None):
     Run one of the interactive scripts in scripts/, feeding `answers` on stdin.
 
     The script runs with `cwd` as its working directory: Step 5 writes its MUSCLE
-    input/output files (<chain>.fa, <chain>.fasta) in the current directory and
+    input/output files (<chain>.fa, <chain>.fasta; _ before lowercase letters, e.g. A_b.fasta) in the current directory and
     reuses an existing <chain>.fasta, so every step needs its own empty directory.
 
     Output (stdout+stderr) is written to `log_path`. Raises ScriptFailed with the end

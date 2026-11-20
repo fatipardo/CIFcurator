@@ -142,7 +142,8 @@ def perform_multiple_alignment(Structure_Sequences, ChID_ResiNum_Vector, structi
               "    1) Show list of chains to be standardized",
               "    2) Remove chain IDs from list of chains to be standardized",
               "    3) Input file of chain IDs to remove from list of chains to be standardized",
-              "    4) Perform multiple alignments",
+              "    4) Perform multiple alignments"
+              "    OR type 'QUIT' to exit",
               sep="\n")
         input_submenu = input('Option Number: ')
         if (input_submenu == "1"):

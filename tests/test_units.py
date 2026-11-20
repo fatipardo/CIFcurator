@@ -7,9 +7,11 @@ Run from the repository root:
 import contextlib
 import gzip
 import io
+import itertools
 import json
 import os
 import pathlib
+import re
 import runpy
 import shutil
 import subprocess
@@ -23,7 +25,7 @@ from urllib.error import HTTPError
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _support  # noqa: E402  (makes CIFcurator importable from src/)
 
-from CIFcurator import alignmentutils, cifcurator_io, cleanutils, pdbutils  # noqa: E402
+from CIFcurator import alignmentutils, cifcluster, cifcurator_io, cleanutils, pdbutils  # noqa: E402
 from CIFcurator import cifcuratorresiduestandardizationutils as resstd  # noqa: E402
 from CIFcurator import cifcuratorchainstandardizationutils as chainstd  # noqa: E402
 from CIFcurator import cifcuratormolidcifutils as molidutils  # noqa: E402
@@ -194,6 +196,12 @@ class TestResnConvert(unittest.TestCase):
         self.assertEqual(alignmentutils.ResnConvert('PSU'), 'U')
         self.assertEqual(alignmentutils.ResnConvert('7MG'), 'G')
 
+    def test_dna(self):
+        # Before NOV2026 DNA residues were X; DNA chains must also be scored as nucleic acids in Step 4
+        dna = ''.join(alignmentutils.ResnConvert(r) for r in ['DG', 'DA', 'DC', 'DT', 'DU', 'DI', 'DN'])
+        self.assertEqual(dna, 'GACTUNN')
+        self.assertLessEqual(set(dna), alignmentutils.NUCLEIC_LETTERS)
+
     def test_unknown_residue_is_X(self):
         self.assertEqual(alignmentutils.ResnConvert('HOH'), 'X')
         self.assertEqual(alignmentutils.ResnConvert('UNK'), 'X')
@@ -304,13 +312,87 @@ class TestPairwiseAlignment(TempDirTestCase):
                 alignmentutils.run_muscle(['-version'])
 
     def test_failed_msa_leaves_no_alignment_to_reuse(self):
-        # Step 5 reuses an existing <chain>.fasta, so a failed MUSCLE run must not leave one behind
+        # Step 5 reuses an existing <chain>.fasta (A_b.fasta for chain Ab), so a failed MUSCLE run must not leave one behind
         name = os.path.join(self.tmp, 'A')
         failed = subprocess.CalledProcessError(1, ['muscle'])
         with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=failed):
             with self.assertRaises(subprocess.CalledProcessError):
                 alignmentutils.AlignSequenceResNum(['MKV', 'MKL'], name, ['s1', 's2'])
         self.assertFalse(os.path.exists(name + '.fasta'))
+
+    def fake_msa(self, calls):
+        # Pads every sequence with gaps to the longest one, and records the MUSCLE mode and input sequences
+        def fake_muscle(cmd, check):
+            mode, fafile, afafile = cmd[1], cmd[2], cmd[4]
+            with open(fafile) as f:
+                records = [r.split('\n', 1) for r in f.read().split('>')[1:]]
+            calls.append((mode, [seq.strip() for _, seq in records]))
+            width = max(len(seq.strip()) for _, seq in records)
+            with open(afafile, 'w') as f:
+                for header, seq in records:
+                    f.write('>' + header + '\n' + seq.strip().ljust(width, '-') + '\n')
+        return fake_muscle
+
+    def test_msa_uses_super5_for_long_sequences(self):
+        name = os.path.join(self.tmp, 'A')
+        calls = []
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=self.fake_msa(calls)):
+            aligned, _ = alignmentutils.AlignSequenceResNum(['MKVLAAGLLA', 'MKVLAAGLL'], name, ['s1', 's2'])
+        self.assertEqual([mode for mode, _ in calls], ['-super5'])
+        self.assertEqual(aligned, {'s1': 'MKVLAAGLLA', 's2': 'MKVLAAGLL-'})
+
+    def test_msa_short_sequence_uses_align(self):
+        # muscle -super5 crashes on sequences shorter than 8 (assert L >= m_WordLength), e.g. a few nucleotides
+        name = os.path.join(self.tmp, 'Tb')
+        calls = []
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=self.fake_msa(calls)):
+            aligned, _ = alignmentutils.AlignSequenceResNum(['ACGTACGTACGT', 'ACGTACGTACG', 'ACG'], name,
+                                                            ['s1', 's2', 's3'])
+        self.assertEqual([mode for mode, _ in calls], ['-align'])
+        self.assertEqual(aligned['s3'], 'ACG---------')
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, 'T_b.fasta')))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'T_b.fasta.part')))
+
+    def test_msa_empty_sequences_are_gaps(self):
+        # MUSCLE crashes on empty sequences: they are left out of MUSCLE and written as all gaps
+        name = os.path.join(self.tmp, 'Tb')
+        calls = []
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=self.fake_msa(calls)):
+            aligned, _ = alignmentutils.AlignSequenceResNum(['ACGTACGTACGT', '', 'ACGTACGTACG'], name,
+                                                            ['s1', 's2', 's3'])
+        self.assertEqual(calls, [('-super5', ['ACGTACGTACGT', 'ACGTACGTACG'])])
+        self.assertEqual(aligned, {'s1': 'ACGTACGTACGT', 's3': 'ACGTACGTACG-', 's2': '------------'})
+        self.assertEqual(sorted(os.listdir(self.tmp)), ['T_b.fa', 'T_b.fasta'])  # all sequences kept in T_b.fa
+        with open(os.path.join(self.tmp, 'T_b.fa')) as f:
+            self.assertEqual(f.read().count('>'), 3)
+
+    def test_case_safe_name(self):
+        self.assertEqual(alignmentutils.case_safe_name('Ab'), 'A_b')
+        self.assertEqual(alignmentutils.case_safe_name('AB'), 'AB')
+        self.assertEqual(alignmentutils.case_safe_name('A1b'), 'A1_b')
+        self.assertEqual(alignmentutils.case_safe_name(os.path.join('Some', 'Ab')), os.path.join('Some', 'A_b'))
+
+    def test_msa_chains_differing_only_in_case(self):
+        # NOV2026: on macOS AB.fasta and Ab.fasta are the same file, so chain Ab reused the alignment of chain AB
+        # (other structures) and Step 5 crashed with a KeyError
+        calls = []
+        with mock.patch.object(alignmentutils.subprocess, 'run', side_effect=self.fake_msa(calls)):
+            first, _ = alignmentutils.AlignSequenceResNum(['MKVLAAGLLA', 'MKVLAAGLL'],
+                                                          os.path.join(self.tmp, 'AB'), ['s1', 's2'])
+            second, _ = alignmentutils.AlignSequenceResNum(['GGSSGGSSGG', 'GGSSGGSSG'],
+                                                           os.path.join(self.tmp, 'Ab'), ['s3', 's4'])
+        self.assertEqual(len(calls), 2)  # the second chain was aligned, not read from AB.fasta
+        self.assertEqual(sorted(first), ['s1', 's2'])
+        self.assertEqual(sorted(second), ['s3', 's4'])
+        self.assertEqual(sorted(f for f in os.listdir(self.tmp) if f.endswith('.fasta')), ['AB.fasta', 'A_b.fasta'])
+
+    def test_msa_single_sequence_skips_muscle(self):
+        # MUSCLE also crashes with only one (non-empty) sequence
+        name = os.path.join(self.tmp, 'A')
+        with mock.patch.object(alignmentutils.subprocess, 'run') as run:
+            aligned, _ = alignmentutils.AlignSequenceResNum(['MKV', ''], name, ['s1', 's2'])
+        run.assert_not_called()
+        self.assertEqual(aligned, {'s1': 'MKV', 's2': '---'})
 
 class TestPdbUtils(TempDirTestCase):
     # As in the wwPDB beta archive pdb_seqres.fasta.gz (extended PDB IDs)
@@ -853,6 +935,21 @@ class TestStepsKeepFilesConsistent(TempDirTestCase):
                          ['_pdbx_poly_seq_scheme chain C entity 2 not in _struct_asym'] * 3 +
                          ['chain C: atoms in entity 2, _struct_asym says 1'] * 3)
 
+    def test_step4_progress_is_one_line_per_chain(self):
+        # NOV2026: "Chain B: 2 of 2 done", not the whole list of chains already completed after every chain
+        # (the log grew with the square of the number of chains: 5.8 GB for 828 chains)
+        seqs = [{'A': 'AG', 'B': 'SKW'}]  # the residues of chains A and B in the file
+        standard = {'A': 'AG', 'B': 'SKW', 'C': 'MKVLAAGG'}
+        out = io.StringIO()
+        with mock.patch('builtins.input', side_effect=['4', 'QUIT']), contextlib.redirect_stdout(out):
+            chainstd.align_to_std_seq_and_save_to_disk(seqs, standard, [self.path], [self.path],
+                                                       os.path.join(self.tmp, 'out'))
+        text = out.getvalue()
+        self.assertEqual(re.findall(r'Chain (\w+): (\d) of (\d) done', text),
+                         [('A', '1', '3'), ('B', '2', '3'), ('C', '3', '3')])
+        self.assertNotIn('already completed', text)
+        self.assertTrue(os.path.isfile(self.out))
+
     def test_step4_swaps_chains_everywhere(self):
         with quiet():
             chainstd.reassignedmaps_to_pdb([self.path], [{'A': 'B', 'B': 'A'}], [self.path],
@@ -881,6 +978,349 @@ class TestStepsKeepFilesConsistent(TempDirTestCase):
         self.assertEqual(pdb_ins, ['?', 'A', '.', '?', '?', 'A'])
         self.assertEqual(_support.mmcif_problems(self.out), [])
 
+
+
+# NOV2026 (PR #240): sequences as in pdb_seqres.fasta, for the clustering of Step 3. The entity names have the
+# quote and colon that cleanutils.clean_cif removes from the CIF files.
+SEQRES = """>pdb_00009xyz_A mol:protein length:30  Test protein
+MKTAYIAKQRQISFVKSHFSRQLEERLGLI
+>pdb_00009xyz_B mol:protein length:30  Other: test protein's B chain
+GSHMLEDPVDAFQLGTVLWKHLRNRYPEAT
+>pdb_00009abc_A mol:protein length:30  Test protein
+MKTAYIAKQRQISFVKSHFSRQLEERLGLV
+>pdb_00009abc_R mol:na length:24  RNA: loop
+GGCGCUUAGCGCCAAAGGCGCUUA
+>pdb_00009zzz_A mol:protein length:30  Same sequence as the test protein
+MKTAYIAKQRQISFVKSHFSRQLEERLGLI
+"""
+
+
+class TestClustering(TempDirTestCase):
+    """NOV2026 (PR #240): Step 3 clusters the polymer chains with MMseqs2 and writes an input file from the clusters."""
+    def setUp(self):
+        super().setUp()
+        self.seqres = self.write('seqres.txt', SEQRES)
+        self.storage = os.path.join(self.tmp, 'clustering_storage') + '/'
+
+    def sub_seqres(self, ids=('PDB_00009XYZ', 'PDB_00009ABC')):
+        os.makedirs(self.storage, exist_ok=True)
+        cifcluster.writing_entity_FASTA(self.storage, cifcluster.entry_dict_seqres(self.seqres), list(ids))
+        return os.path.join(self.storage, 'sub_seqres.txt')
+
+    def cluster_files(self, group='PROTEIN'):
+        return sorted(os.listdir(os.path.join(self.storage, group + '_clustering_storage', 'cluster_files')))
+
+    def test_seqres_attributes(self):
+        get = cifcluster.get_attributes_seqres
+        self.assertEqual(get(self.seqres, 'PDBID_CHID')[:2], ['PDB_00009XYZ_A', 'PDB_00009XYZ_B'])
+        self.assertEqual(get(self.seqres, 'PDBID', cif='pdb_00009abc+01'), ['PDB_00009ABC', 'PDB_00009ABC'])
+        self.assertEqual(get(self.seqres, 'CHID', cif='pdb_00009abc'), ['A', 'R'])
+        self.assertEqual(get(self.seqres, 'MOL', cif='pdb_00009abc'), ['mol:protein', 'mol:na'])
+        self.assertEqual(get(self.seqres, 'SEQUENCE', cif='pdb_00009abc')[1], 'GGCGCUUAGCGCCAAAGGCGCUUA')
+
+    def test_entity_labels_match_the_cleaned_cif_files(self):
+        # The entity names of the cleaned CIF files (see TestCleanCif) are the keys of the input file
+        labels = cifcluster.get_attributes_seqres(self.sub_seqres(), 'ENTITY_LABEL', cif='pdb_00009xyz')
+        self.assertEqual(labels, ['TEST PROTEIN', 'OTHER TEST PROTEINS B CHAIN'])
+
+    def test_sub_seqres_has_only_the_project_structures(self):
+        ids = cifcluster.get_attributes_seqres(self.sub_seqres(), 'PDBID_CHID')
+        self.assertEqual(ids, ['PDB_00009XYZ_A', 'PDB_00009XYZ_B', 'PDB_00009ABC_A', 'PDB_00009ABC_R'])
+
+    def test_proteins_and_nucleic_acids_clustered_apart(self):
+        sub = self.sub_seqres()
+        with mock.patch.object(cifcluster, 'clustering') as clustering, quiet():
+            cifcluster.processing_RNA_PROTEIN_cluster(self.storage, sub)
+        self.assertEqual([os.path.basename(c.args[1]) for c in clustering.call_args_list],
+                         ['PROTEIN_seqres.txt', 'RNA_DNA_seqres.txt'])
+        self.assertEqual(cifcluster.get_attributes_seqres(clustering.call_args_list[1].args[1], 'PDBID_CHID'),
+                         ['PDB_00009ABC_R'])
+
+    def test_rerun_rewrites_sequences_and_removes_empty_group(self):
+        # Copilot review: a rerun on fewer structures must not cluster the sequences of the first run
+        with mock.patch.object(cifcluster, 'clustering'), quiet():
+            cifcluster.processing_RNA_PROTEIN_cluster(self.storage, self.sub_seqres())
+            cifcluster.processing_RNA_PROTEIN_cluster(self.storage, self.sub_seqres(['PDB_00009XYZ']))
+        protein = os.path.join(self.storage, 'PROTEIN_clustering_storage', 'PROTEIN_seqres.txt')
+        self.assertEqual(cifcluster.get_attributes_seqres(protein, 'PDBID_CHID'), ['PDB_00009XYZ_A', 'PDB_00009XYZ_B'])
+        self.assertFalse(os.path.exists(os.path.join(self.storage, 'RNA_DNA_clustering_storage')))
+
+    def test_rerun_removes_old_cluster_files(self):
+        # Copilot review: old cluster files would be read as clusters of the new run
+        path = os.path.join(self.storage, 'PROTEIN_clustering_storage', 'cluster_files')
+        self.write(os.path.join(path, '7_PDB_00001OLD_A_cluster.txt'), '')
+        seqres_dict = cifcluster.entry_dict_seqres(self.sub_seqres())
+        cifcluster.writing_cluster_FASTA(seqres_dict, {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009ABC_A'}}, path)
+        self.assertEqual(self.cluster_files(), ['1_PDB_00009XYZ_A_cluster.txt'])
+
+    def write_clusters(self, clusters):
+        """Write clusters.tsv and the cluster files of the PROTEIN group, as clustering() does after MMseqs2."""
+        group = os.path.join(self.storage, 'PROTEIN_clustering_storage')
+        self.write(os.path.join(group, 'clusters.tsv'),
+                   ''.join('{0}\t{1}\n'.format(rep, mem) for rep, members in clusters for mem in members))
+        os.makedirs(os.path.join(group, 'cluster_files'), exist_ok=True)
+        seqres_dict = cifcluster.entry_dict_seqres(os.path.join(self.storage, 'sub_seqres.txt'))
+        for n, (rep, members) in enumerate(clusters):
+            with open(os.path.join(group, 'cluster_files', '{0}_{1}_cluster.txt'.format(n + 1, rep)), 'w') as f:
+                for mem in members:
+                    f.writelines(seqres_dict[mem])
+
+    def test_no_problems_found(self):
+        self.sub_seqres()
+        self.write_clusters([('PDB_00009XYZ_A', ['PDB_00009XYZ_A', 'PDB_00009ABC_A']), ('PDB_00009XYZ_B', ['PDB_00009XYZ_B'])])
+        with quiet():
+            clusters, outliers = cifcluster.finding_problematic_cluster_results(self.storage)
+        self.assertEqual(clusters, {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009ABC_A'},
+                                    'PDB_00009XYZ_B': {'PDB_00009XYZ_B'}})
+        self.assertEqual(outliers, {})
+        self.assertEqual([f for f in os.listdir(self.storage) if f.endswith('.csv')], [])
+
+    def test_chain_in_two_clusters_is_reported(self):
+        # Copilot review: used to raise AttributeError (dict.add) instead of writing the warning table
+        self.sub_seqres()
+        self.write_clusters([('PDB_00009XYZ_A', ['PDB_00009XYZ_A']), ('PDB_00009ABC_A', ['PDB_00009ABC_A', 'PDB_00009XYZ_A'])])
+        with quiet():
+            _, outliers = cifcluster.finding_problematic_cluster_results(self.storage)
+        self.assertEqual(outliers, {'PDB_00009XYZ_A': {'TEST PROTEIN'}, 'PDB_00009ABC_A': {'TEST PROTEIN'}})
+        with open(os.path.join(self.storage, 'duplicate_entities_warning.csv')) as f:
+            self.assertEqual([line.split(',')[:3] for line in f][1:],
+                             [['PDB_00009XYZ', 'TEST PROTEIN', 'A']] * 2)
+        self.assertTrue(os.path.isfile(os.path.join(self.storage, 'duplicate_entries_warning.csv')))
+
+    def test_entity_in_two_clusters_is_reported(self):
+        self.sub_seqres()
+        self.write_clusters([('PDB_00009XYZ_A', ['PDB_00009XYZ_A']), ('PDB_00009ABC_A', ['PDB_00009ABC_A'])])
+        with quiet():
+            _, outliers = cifcluster.finding_problematic_cluster_results(self.storage)
+        self.assertEqual(outliers, {'PDB_00009XYZ_A': {'TEST PROTEIN'}, 'PDB_00009ABC_A': {'TEST PROTEIN'}})
+        self.assertEqual(sorted(f for f in os.listdir(self.storage) if f.endswith('.csv')),
+                         ['duplicate_entries_warning.csv'])
+
+    def generate(self, structures, clusters, outliers=None):
+        """
+        Run option 4 (generate input file) on `structures`: {file: {entity name: (entity type, copies)}}.
+        Returns the input file as {entity name: [chain IDs]}.
+        """
+        master, occur = [], {}
+        for name, entities in structures.items():
+            types = {str(i + 1): t for i, (t, _) in enumerate(entities.values())}
+            names = {str(i + 1): e for i, e in enumerate(entities)}
+            master.append(molidutils.MolID(name, types, names, {}, {}, {}, {}))
+            for entity, (_, copies) in entities.items():
+                occur[entity] = max(occur.get(entity, 0), copies)
+        conversions = [molidutils.initial_MolIDConversion(e, n) for e, n in occur.items()]
+        cifcluster.generate_chain_assignments(conversions, master, clusters, outliers or {}, self.tmp)
+        return molidutils.read_input_file(os.path.join(self.tmp, 'input_file.txt'))
+
+    def test_generated_input_file(self):
+        self.sub_seqres()
+        generated = self.generate(
+            {'clean_bank/pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 2), 'WATER': ('water', 3)},
+             'clean_bank/pdb_00009abc+01.cif': {'TEST PROTEIN': ('polymer', 1), 'OTHER TEST PROTEINS B CHAIN': ('polymer', 1),
+                                                'WATER': ('water', 1)}},
+            {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009ABC_A'}, 'PDB_00009XYZ_B': {'PDB_00009XYZ_B'}})
+        # One chain per cluster, copies of a polymer named A, Ab, ... (see chain-ID convention); all the copies of
+        # a ligand in a file get the same chain, so they are concatenated
+        self.assertEqual(generated, {'OTHER TEST PROTEINS B CHAIN': ['B'], 'TEST PROTEIN': ['A', 'Ab'],
+                                     'WATER': ['C', 'C', 'C']})
+        with open(os.path.join(self.tmp, 'input_file.txt')) as f:
+            self.assertEqual(f.readline(), 'OTHER TEST PROTEINS B CHAIN:B\n')
+
+    def test_generated_input_file_completes_the_conversion(self):
+        self.sub_seqres()
+        structures = {'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 3), 'SULFATE ION': ('non-polymer', 1)}}
+        generated = self.generate(structures, {'PDB_00009XYZ_A': {'PDB_00009XYZ_A'}})
+        self.assertEqual(generated, {'SULFATE ION': ['B'], 'TEST PROTEIN': ['A', 'Ab', 'Ac']})
+        conversions = [molidutils.initial_MolIDConversion('TEST PROTEIN', 3),
+                       molidutils.initial_MolIDConversion('SULFATE ION', 1)]
+        with mock.patch('builtins.input', return_value=os.path.join(self.tmp, 'input_file.txt')):
+            conversions = molidutils.add_user_conversion(conversions)
+        self.assertEqual(molidutils.check_complete(conversions), '1')
+
+    def test_outlier_entity_gets_its_own_chain(self):
+        self.sub_seqres()
+        generated = self.generate(
+            {'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 1), 'OTHER TEST PROTEINS B CHAIN': ('polymer', 1)}},
+            {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009XYZ_B'}},
+            {'PDB_00009XYZ_B': {'OTHER TEST PROTEINS B CHAIN'}})
+        self.assertEqual(generated, {'OTHER TEST PROTEINS B CHAIN': ['B'], 'TEST PROTEIN': ['A']})
+
+    def test_polymers_of_one_cluster_in_different_files_get_the_same_chains(self):
+        # NOV2026 (a150fb0): the same protein under two names in two files: both are named A, Ab, ...
+        # (5f14e4f, reverted, continued the copies of the second one as Ac, Ad)
+        self.sub_seqres(('PDB_00009XYZ', 'PDB_00009ZZZ'))
+        generated = self.generate(
+            {'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 2)},
+             'pdb_00009zzz+01.cif': {'SAME SEQUENCE AS THE TEST PROTEIN': ('polymer', 2)}},
+            {'PDB_00009XYZ_A': {'PDB_00009XYZ_A', 'PDB_00009ZZZ_A'}})
+        self.assertEqual(generated, {'SAME SEQUENCE AS THE TEST PROTEIN': ['A', 'Ab'], 'TEST PROTEIN': ['A', 'Ab']})
+
+    def test_polymer_copies_have_no_digits(self):
+        # NOV2026 (92293e8): copies are named with letters only, so they cannot collide with a base chain label
+        # (Ab ... Az, then Abb, Abc, ...)
+        self.sub_seqres()
+        generated = self.generate({'pdb_00009xyz+01.cif': {'TEST PROTEIN': ('polymer', 28)}},
+                                  {'PDB_00009XYZ_A': {'PDB_00009XYZ_A'}})
+        chains = generated['TEST PROTEIN']
+        self.assertEqual(chains[:3], ['A', 'Ab', 'Ac'])
+        self.assertEqual(chains[24:], ['Ay', 'Az', 'Abb', 'Abc'])
+        self.assertEqual(len(set(chains)), 28)
+        self.assertTrue(all(c.isalpha() for c in chains))
+
+    def test_entity_names_and_types_read_from_cif(self):
+        # Copilot review: upper case, as the keys of the conversion and the labels of the clusters
+        path = self.write('clean_bank/9xyz+00.cif', ONE_ASSEMBLY)
+        with quiet():
+            (molid,) = molidutils.pdb_to_masterlist([path])
+        self.assertEqual(molid.entity_name_map, {'1': 'TEST PROTEIN', '2': "OTHER: TEST PROTEIN'S B CHAIN"})
+        self.assertEqual(molid.entity_type_map, {'1': 'polymer', '2': 'polymer'})
+
+    @unittest.skipIf(shutil.which('mmseqs') is None, 'mmseqs (MMseqs2) not on PATH')
+    def test_pipeline_with_mmseqs(self):
+        # Proteins only: MMseqs2 needs about 8.5 GB of memory to cluster even one nucleic acid sequence
+        os.makedirs(os.path.join(self.tmp, 'cwd'))
+        with contextlib.chdir(os.path.join(self.tmp, 'cwd')), quiet():
+            cifcluster.run_clustering_pipeline(['clean_bank/pdb_00009xyz+01.cif', 'clean_bank/pdb_00009zzz+01.cif'],
+                                               self.tmp, self.seqres)
+            clusters, outliers = cifcluster.finding_problematic_cluster_results(self.storage)
+        self.assertEqual(os.listdir(os.path.join(self.tmp, 'cwd')), [])
+        # The two copies of the test protein in one cluster, the B chain in another
+        self.assertEqual(sorted(sorted(m) for m in clusters.values()),
+                         [['PDB_00009XYZ_A', 'PDB_00009ZZZ_A'], ['PDB_00009XYZ_B']])
+        self.assertEqual(outliers, {})
+        self.assertEqual(len(self.cluster_files()), 2)
+        self.assertFalse(os.path.exists(os.path.join(self.storage, 'RNA_DNA_clustering_storage')))
+
+
+class TestResolvePolymericChainConcatenations(unittest.TestCase):
+    """
+    NOV2026 (PR #240, Copilot review): option 5 renames the polymer chains that would be concatenated (with each
+    other or with a ligand) before it finalizes; a polymer chain still marked incomplete raises a RuntimeError.
+    """
+    TYPES = {'PROTEIN': 'polymer', 'OTHER PROTEIN': 'polymer', 'LIGAND': 'non-polymer'}
+
+    def resolve(self, chains):
+        """
+        Resolve one file whose chains are [(old chain, entity name, new chain)], in the order of the CIF.
+        Returns the MolID with the resolved {old chain: new chain}.
+        """
+        entities = list(dict.fromkeys(entity for _, entity, _ in chains))
+        types = {str(i + 1): self.TYPES[e] for i, e in enumerate(entities)}
+        names = {str(i + 1): e for i, e in enumerate(entities)}
+        molid_chid = {e: [old for old, entity, _ in chains if entity == e] for e in entities}
+        molid = molidutils.MolID('pdb_00009xyz+01.cif', types, names, {old: new for old, _, new in chains},
+                                 molid_chid, {}, {})
+        molid.check_for_concatenations()
+        with tempfile.TemporaryDirectory() as project_dir, quiet():
+            (resolved,), returned_to_menu = cifcluster.resolve_polymeric_chain_concatenations([molid], project_dir)
+        self.assertFalse(returned_to_menu)
+        self.assertIs(resolved, molid)
+        return molid
+
+    def assert_polymers_resolved(self, molid):
+        """Each polymer chain has its own destination, no ligand has it, and option 5 can finalize."""
+        polymers = [ch for e, chs in molid.molID_chID.items() if self.TYPES[e] == 'polymer' for ch in chs]
+        others = {molid.chID_newchID_map[ch] for ch in molid.chID_newchID_map if ch not in polymers}
+        destinations = [molid.chID_newchID_map[ch] for ch in polymers]
+        self.assertEqual(len(set(destinations)), len(destinations), destinations)
+        self.assertFalse(others & set(destinations), destinations)
+        self.assertTrue(all(molid.complete_order[ch] for ch in polymers), molid.complete_order)
+        self.assertTrue(all(c.isalpha() for c in destinations), destinations)
+
+    def test_repeated_polymer_destinations(self):
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'PROTEIN', 'A'), ('C', 'PROTEIN', 'A')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'Ab', 'C': 'Ac'})
+        self.assert_polymers_resolved(molid)
+
+    def test_reserved_suffix_ids_are_skipped(self):
+        # Ab and Ac already belong to other chains, so the second copy of A becomes Ad
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'PROTEIN', 'A'), ('C', 'OTHER PROTEIN', 'Ab'),
+                              ('D', 'LIGAND', 'Ac')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'Ad', 'C': 'Ab', 'D': 'Ac'})
+        self.assert_polymers_resolved(molid)
+
+    def test_repeated_reserved_suffix_id(self):
+        # The copies of Ab must not take a name already given to a copy of A
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'PROTEIN', 'A'), ('C', 'OTHER PROTEIN', 'Ab'),
+                              ('D', 'OTHER PROTEIN', 'Ab')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'Ac', 'C': 'Ab', 'D': 'Abb'})
+        self.assert_polymers_resolved(molid)
+
+    def test_polymer_before_ligand(self):
+        # The polymer is first (concatenation order 1), but the ligand keeps the shared chain
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'LIGAND', 'A')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'Ab', 'B': 'A'})
+        self.assert_polymers_resolved(molid)
+
+    def test_ligand_before_polymer(self):
+        molid = self.resolve([('A', 'LIGAND', 'A'), ('B', 'PROTEIN', 'A')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'Ab'})
+        self.assert_polymers_resolved(molid)
+
+    def test_all_polymer_and_ligand_orders(self):
+        # Ligand copies stay concatenated (option 5 accepts them), polymer copies never share a chain.
+        # The suffix follows the concatenation order, which counts the ligands too, so letters can be skipped
+        # (P1, L1, L2, P2 -> Ab, Ad)
+        chains = [('P1', 'PROTEIN', 'A'), ('P2', 'PROTEIN', 'A'), ('L1', 'LIGAND', 'A'), ('L2', 'LIGAND', 'A')]
+        for order in itertools.permutations(chains):
+            with self.subTest(order=[old for old, _, _ in order]):
+                molid = self.resolve(list(order))
+                self.assert_polymers_resolved(molid)
+                self.assertTrue(all(molid.chID_newchID_map[ch].startswith('A') for ch in ('P1', 'P2')))
+                self.assertEqual([molid.chID_newchID_map[ch] for ch in ('L1', 'L2')], ['A', 'A'])
+                self.assertFalse(molid.complete_order['L1'])
+
+    def test_only_ligands_concatenated(self):
+        # As in the pipeline: nothing to rename when only ligand copies share a chain
+        molid = self.resolve([('A', 'PROTEIN', 'A'), ('B', 'OTHER PROTEIN', 'B'), ('C', 'LIGAND', 'C'),
+                              ('D', 'LIGAND', 'C')])
+        self.assertEqual(molid.chID_newchID_map, {'A': 'A', 'B': 'B', 'C': 'C', 'D': 'C'})
+        self.assert_polymers_resolved(molid)
+
+
+class TestMolIDScriptHelp(unittest.TestCase):
+    SCRIPT = os.path.join(_support.REPO_DIR, 'scripts', 'CIFcurator_MolID.py')
+
+    @classmethod
+    def setUpClass(cls):
+        cmd, env = _support.script_command('CIFcurator_MolID.py', ['-h'])
+        cls.result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+        with open(cls.SCRIPT) as f:
+            source = f.read()
+        # The code that follows the docstring: the menus the script really prints
+        cls.code = source[source.index('from __future__'):]
+
+    def test_help(self):
+        self.assertEqual(self.result.returncode, 0)
+        # NOV2026 (1c9c2fa): seqfile is an optional positional argument, after projdir
+        self.assertIn('source_dir target_dir [projdir] [seqfile]', self.result.stdout)
+        self.assertNotIn('--seqfile', self.result.stdout)
+
+    def test_help_lists_the_options_of_the_menus(self):
+        # Every "N) Option" line printed by the menus is described in -h, so the two cannot drift apart
+        options = re.findall(r'^\s*(?:print\(")?\s*(\d\) [^\n"(]*[^\s"(])', self.code, re.MULTILINE)
+        self.assertIn('4) Generate input file', options)
+        self.assertIn('5) Continue to next step of curation', options)
+        for option in options:
+            self.assertIn(option, self.result.stdout)
+
+    def test_help_does_not_list_removed_options(self):
+        for removed in ('Search MolID to add chain ID conversion', 'Go entry by entry', 'Remove a chain ID conversion',
+                        'A) Track changes',
+                        # NOV2026 (cf32a18): the Concatenations Menu is gone, concatenations are accepted with 5
+                        'Concatenations Menu', 'Accept ALL', 'Accept proposed concatenation one by one'):
+            self.assertNotIn(removed, self.result.stdout)
+
+    def test_help_and_menus_show_quit(self):
+        self.assertIn("OR type 'QUIT' to exit", self.code)
+        self.assertIn('QUIT   Exit without writing CIF files.', self.result.stdout)
+
+    def test_projdir_is_optional(self):
+        # nargs='?': without it argparse ignores default='.' and projdir is required
+        cmd, env = _support.script_command('CIFcurator_MolID.py', ['only_source_dir'])
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('error: the following arguments are required: target_dir\n', result.stderr)
 
 
 class TestStandardSequencesFile(TempDirTestCase):
