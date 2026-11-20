@@ -10,38 +10,38 @@
 
 r"""Step 3 of CIFcurator: assign the chain IDs of the entities (MolIDs) found in the CIF files.
 
-Reads every .cif file in source_dir, lists the entities (MolIDs) found in them, and asks
-you to give each entity a new chain ID for every copy of it. The rewritten CIF files are
-saved in target_dir. The script is interactive: it shows a menu and asks for options.
+Runs sequence clustering on the input CIF files from source_dir, provides an interactive menu to load or
+generate chain ID mappings, resolves polymeric chain concatenations, and writes curated
+CIF files to target_dir.
 
 Conversion Build Menu:
   1) Show full conversion
-         Show every entity and the chain IDs assigned to it so far.
+         Display every entity and the chain IDs assigned to it so far.
   2) Show only unassigned conversions
-         Show only the entities that still miss chain IDs.
+         Display only the entities that still lack chain IDs.
   3) Enter input file
-         Read the chain IDs from a file with one entity per line, in the format
-         ENTITY NAME:chainID,chainID,...   for example   WATER:F,G
+         Read chain IDs from a mapping file with one entity per line
+         (ENTITY_NAME:chainID,chainID,...), for example: WATER:F,G
   4) Generate input file
-         From the clustering information, an input file is generated for the user
+         Generate chain ID assignments using sequence clustering results and write
+         the mapping file to projdir.
   5) Continue to next step of curation
-         Shown once every entity has all its chain IDs.
-         and writes Write OldChainID_NewChainID_numbered_MolID_Files_Map.csv in target_dir
-         (original_chain_names:new_chain_names:entity_name:number_of_files:file_name).
+         Available once all entities have assigned chain IDs. Updates the master
+         entity-chain mapping, resolves polymeric chain concatenations (prompting
+         to accept or return to the menu if polymer/non-polymer chain ID overlaps
+         occur), writes tracking/diagnostic files, and proceeds to finalization.
   QUIT   Exit without writing CIF files.
 
-After option 5, if no two entities share a chain ID, option 6) Finalize Curation writes the
-CIF files to target_dir. Otherwise the Concatenations Menu appears: entities with the same
-chain ID will be concatenated into one chain, and each concatenation must be accepted first:
-  1) Show all conversions
-  2) Show only unaccepted concatenations
-  3) Search and modify destination chainIDs of proposed concatenations
-  4) Accept proposed concatenation one by one
-  5) Accept ALL (make sure you agree with all concatenations)
-  6) Finalize Curation
+Output & Diagnostic Files:
+  - In projdir: clustering_storage/, generated input mapping files,
+    updated_input_file.txt, and optional collision/divergence reports
+    (polymer_nonpolymer_collisions.txt and per_file_entity_chain_differences.txt)
+    when applicable.
+  - In target_dir: OldChainID_NewChainID_numbered_MolID_Files_Map.csv and, after
+    selecting option 6) Finalize Curation, the rewritten .cif files.
 
-The answers can also be given on standard input, for example:
-  printf '3\nTIM_input_file.txt\n7\n6\n' | CIFcurator_MolID.py clean_bank standard_MolID_bank
+Non-interactive / piped input example:
+  printf '3\nTIM_input_file.txt\n5\n6\n' | CIFcurator_MolID.py source_dir target_dir projdir
 """
 
 from __future__ import print_function
