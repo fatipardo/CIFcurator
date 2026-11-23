@@ -662,6 +662,7 @@ def read_input_file(input_cnv_file):
     user_molID_chID_map = {}
     user_molID_list_v = []
     user_chID_list_v = []
+    prohibited_chars = ["_",",","!","?"]
 
     # Read user input file and create user_molID_chID_map
     if (input_cnv_file != ""):
@@ -675,6 +676,16 @@ def read_input_file(input_cnv_file):
                     chID = my_line[1].split(',')
                     user_molID_list_v.append(molID)
                     user_chID_list_v.append(chID)
+
+                    for chain in chID:
+                        for char in prohibited_chars:
+                            if char in chain:
+                                print(f"Your input list contains a prohibited character. "
+                                      f"The following characters cannot be used {prohibited_chars}. Please adjust the input file.")
+                                return None
+
+            # Checking first if any if the chains have prohibited characters
+
 
             #links the entity name to the chain ID
             for molID_i, chID_i in zip(user_molID_list_v, user_chID_list_v):
