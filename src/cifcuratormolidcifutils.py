@@ -623,7 +623,10 @@ def show_full_conversion_and_file_list_by_number_chains(master_molID_class_list,
             new_chIDs = [molID_class.chID_newchID_map[chID] for chID in old_chIDs]
 
             if nchains > 5:
-                molIDCon_chID_list_forPrint = f"{nchains}x{new_chIDs[0]}"
+                if len(set(new_chIDs)) == 1:
+                    molIDCon_chID_list_forPrint = f"{nchains}x{new_chIDs[0]}"
+                else:
+                    molIDCon_chID_list_forPrint = ",".join(new_chIDs)
             else:
                 molIDCon_chID_list_forPrint = ",".join(new_chIDs)
 
