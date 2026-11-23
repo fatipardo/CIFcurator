@@ -867,7 +867,7 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list, project_dir)
     differing_entities = {
         ent_name: records
         for ent_name, records in entity_file_mappings.items()
-        if len({frozenset(chains) for _, chains in records}) > 1
+        if any(chains != max_chains_per_entity[ent_name][:len(chains)] for _, chains in records)
     }
 
     with open(f"{project_dir}/updated_input_file.txt", "w") as out_f:
