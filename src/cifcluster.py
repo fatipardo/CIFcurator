@@ -204,13 +204,15 @@ def get_combination(index):
 
     return result
 
-def entry_dict_seqres(seqres_file):
+def entry_dict_seqres(seqres_file, pdb_id_list=None):
     """
     Builds a dictionary from SEQRES, mapping each PDB ID and chain ID to its corresponding metadata line and sequence.
 
     Parameters
     ----------
     seqres_file(str): Path to the input seqres.txt file.
+
+    pdb_id_list(list): A list which stores strings that are the pdb id's the user wishes to work with:
 
     Returns
     -------
@@ -223,12 +225,16 @@ def entry_dict_seqres(seqres_file):
     - All metadata components except the chain ID are capitalized for consistency.
     """
     entry_dict = {}
+    allowed_ids = {pid.upper() for pid in pdb_id_list} if pdb_id_list is not None else None
     with open(seqres_file, 'r') as file:
         for meta_line, sequence_line in zip(file, file):
             # Here we capitalize everything in pdb_chid except for the chain id
             pdbchid_label_fasta = meta_line.split()[0][1:]
 
             pdb_id = pdbchid_label_fasta[:12].upper()
+            if allowed_ids is not None and pdb_id not in allowed_ids:
+                continue
+
             ch_id = pdbchid_label_fasta.split('_')[2]
             pdb_chid = pdb_id + '_' + ch_id
 
@@ -329,7 +335,7 @@ def writing_cluster_FASTA(seqres_dict, cluster_dict, clusterFastaStoragePath):
                     print(f'{entry} not in seqres.txt')
         cluster_num += 1
 
-def writing_entity_FASTA(clustering_directory, seqres_dict, PDB_ID_list):
+def writing_entity_FASTA(clustering_directory, seqres_dict, pdb_id_list):
     """
     Writes a FASTA file with entries from seqres_dict related to the PDB IDs of interest.
 
@@ -341,14 +347,14 @@ def writing_entity_FASTA(clustering_directory, seqres_dict, PDB_ID_list):
     seqres_dict(dict): A dictionary produced by 'entry_dict_seqres()' where:
             - Keys are strings in the format "PDBID_CHID" (e.g., "1ABC_A").
             - Values are lists containing: [metadata_line (str), sequence_line (str)].
-    PDB_ID_list(list): List of PDB IDs to filter and write out.
+    pdb_id_list(list): List of PDB IDs to filter and write out.
 
     Returns
     -------
     None
     """
     # seqres_dict dictionary of the big seqres
-    pdb_ids = set(PDB_ID_list)
+    pdb_ids = set(pdb_id_list)
     matching_labels = [label for label in seqres_dict if label[:12] in pdb_ids]
     entityFasta = f'sub_seqres.txt'
     with open(f'{clustering_directory}/{entityFasta}', 'w') as file:
@@ -1297,15 +1303,17 @@ def run_clustering_pipeline(filelist, project_dir, seqres_file):
     except FileExistsError:
         print(f"Directory '{clustering_directory}' already exists.")
 
-    seqres_dict = entry_dict_seqres(seqres_file)
-    
-    PDB_ID_list = []
-    
+    pdb_id_list = []
     for file in filelist:
         name = file.split('/')[-1] # pdb_00007qom+01.cif
         pdb_id = os.path.splitext(name)[0].split('+')[0].upper()
-        PDB_ID_list.append(pdb_id)
+        pdb_id_list.append(pdb_id)
 
-    writing_entity_FASTA(clustering_directory, seqres_dict, PDB_ID_list)
+    seqres_dict = entry_dict_seqres(seqres_file, pdb_id_list)
+
+
+
+    writing_entity_FASTA(clustering_directory, seqres_dict, pdb_id_list)
+    del seqres_dict
 
     processing_RNA_PROTEIN_cluster(clustering_directory, f"{clustering_directory}/sub_seqres.txt")
