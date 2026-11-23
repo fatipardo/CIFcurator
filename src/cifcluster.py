@@ -212,7 +212,8 @@ def entry_dict_seqres(seqres_file, pdb_id_list=None):
     ----------
     seqres_file(str): Path to the input seqres.txt file.
 
-    pdb_id_list(list): A list which stores strings that are the pdb id's the user wishes to work with:
+    pdb_id_list(list, optional): List of PDB IDs to keep while reading. If None,
+                                 all entries in ``seqres_file`` are included.
 
     Returns
     -------
@@ -324,11 +325,11 @@ def writing_cluster_FASTA(seqres_dict, cluster_dict, clusterFastaStoragePath):
         if filename.endswith('_cluster.txt'):
             os.remove(os.path.join(clusterFastaStoragePath, filename))
     cluster_num = 1
-    for key in cluster_dict:
+    for key in sorted(cluster_dict.keys()):
         with open(f'{clusterFastaStoragePath}/{cluster_num}_{key}_cluster.txt', 'w') as file:
-            entries_list = list(cluster_dict[key])
+            entries_list = sorted(cluster_dict[key])
             for entry in entries_list:
-                lines_to_write = seqres_dict[entry]
+                lines_to_write = seqres_dict.get(entry)
                 if lines_to_write:
                     file.writelines(lines_to_write)
                 else:
