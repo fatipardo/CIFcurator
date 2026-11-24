@@ -117,10 +117,10 @@ while(input_menu != "QUIT"):
     elif (input_menu == "3"):
         molIDConversion_list = molidutils.add_user_conversion(molIDConversion_list)
     elif (input_menu == "4"):
-        returned_label = cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list,
-                                                                cluster_pdbchids, outlier_case_entries, projdir)
-        if returned_label is not None:
-            current_label = returned_label
+        current_label = cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list,
+                                                              cluster_pdbchids, outlier_case_entries, projdir)
+        if current_label is not None:
+            returned_label = current_label
 
     elif (input_menu == "5"):
         if (input_menu_complete == "1"):
