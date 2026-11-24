@@ -685,7 +685,7 @@ def read_input_file(input_cnv_file):
                             if char in chain:
                                 print(f"Your input list contains a prohibited character. "
                                       f"The following characters cannot be used {prohibited_chars}. Please adjust the input file.")
-                                return None
+                                return {}
 
             # Checking first if any if the chains have prohibited characters
 
