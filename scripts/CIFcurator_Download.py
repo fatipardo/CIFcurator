@@ -112,7 +112,10 @@ pdbutils.download_pdb_from_metadata(metadata, projdir=projdir)
 
 if args.csm:
     csm_keyword = args.csm_keyword if args.csm_keyword is not None else keyword
-    pdbutils.download_csm_from_keyword(csm_keyword, projdir=projdir, max_models=args.max_models)
+    afids = pdbutils.download_csm_from_keyword(csm_keyword, projdir=projdir, max_models=args.max_models)
+    csm_files = [f"{projdir}/raw_bank/{afid}+01.cif" for afid in afids if
+                 os.path.exists(f"{projdir}/raw_bank/{afid}+01.cif")]
+    pdbutils.append_csm_sequences_to_seqres(csm_files, seqfile)
 else:
     for option, value in (('--max-models', args.max_models), ('--csm-keyword', args.csm_keyword)):
         if value is not None:

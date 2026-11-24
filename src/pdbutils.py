@@ -9,6 +9,8 @@ import numpy as np
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, ContentTooShortError
 from contextlib import closing, suppress
+from Bio.PDB.MMCIFParser import FastMMCIFParser
+from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 #
 # OCT2026: files come from the wwPDB beta archive, which uses the extended PDB IDs (pdb_00001aw1)
 # and will replace the current archive on July 21, 2027 (https://www.wwpdb.org/ftp/pdb-beta-ftp-sites)
@@ -522,4 +524,60 @@ def download_from_url(source, target, gunzip=False):
             with suppress(FileNotFoundError):
                 os.remove(staging)
     print('wrote {0} from {1}'.format(target, source))
+
+def append_csm_sequences_to_seqres(csm_files, seqfile):
+    from CIFcurator.alignmentutils import ResnConvert
+    """
+    Appends FASTA-formatted entries for computed structure models (e.g., AlphaFold CIFs)
+    to `seqfile` (`seqres.txt`), skipping any header already present in `seqfile`.
+    """
+
+    def _as_list(val):
+        if val is None:
+            return []
+        return [val] if isinstance(val, str) else val
+
+    if not csm_files:
+        return
+
+    existing_headers = set()
+    if os.path.exists(seqfile):
+        with open(seqfile, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith(">"):
+                    existing_headers.add(line.strip().split()[0])
+
+    new_entries = []
+    for cif_path in csm_files:
+        parser = FastMMCIFParser(auth_residues=False, QUIET=1)
+        struct = parser.get_structure(str(cif_path), cif_path)
+        mmcif_dict = MMCIF2Dict(cif_path)
+
+        # Prefer _entry.id (e.g. AF-P60174-F1) if present, else struct.get_id()
+        entry_ids = _as_list(mmcif_dict.get("_entry.id"))
+        struct_id = entry_ids[0] if entry_ids and entry_ids[0] not in ("?", ".") else str(struct.get_id())
+
+        descs = _as_list(mmcif_dict.get("_entity.pdbx_description"))
+        desc = " ".join(d for d in descs if d and d not in ("?", ".")).strip() or "Computed structure model"
+
+        poly_types = [t.lower() for t in _as_list(mmcif_dict.get("_entity_poly.type"))]
+        if any("ribonucleotide" in t and "deoxy" not in t for t in poly_types):
+            mol_type = "rna"
+        elif any("deoxyribonucleotide" in t for t in poly_types):
+            mol_type = "dna"
+        else:
+            mol_type = "protein"
+
+        for chain in struct[0]:
+            seq = "".join(ResnConvert(res.get_resname()) for res in chain)
+            header_id = f">{struct_id}_{chain.get_id()}"
+            if header_id in existing_headers:
+                continue
+            existing_headers.add(header_id)
+            header = f"{header_id} mol:{mol_type} length:{len(seq)}  {desc}"
+            new_entries.append(f"{header}\n{seq}\n")
+
+    if new_entries:
+        with open(seqfile, "a", encoding="utf-8") as out_f:
+            out_f.writelines(new_entries)
 
