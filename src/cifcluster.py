@@ -174,6 +174,52 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
 
     return attribute_list
 
+def get_label(n: int) -> str:
+    """
+    Generates a unique chain label based on a numerical index.
+
+    Labels are generated sequentially using uppercase letters (A-Z), followed
+    by combinations of uppercase letters (AA-ZZ). For indices beyond 701,
+    labels are generated using a combination of uppercase letters and numbers.
+
+    Parameters
+    ----------
+    n (int): Non-negative numerical index used to generate the chain label.
+             Each unique index corresponds to a different chain label.
+
+    Returns
+    -------
+    str: Generated chain label corresponding to the supplied numerical index.
+
+    Raises
+    ------
+    ValueError: If the supplied index is negative.
+    """
+    if n < 0:
+        raise ValueError("Input must be a non-negative integer.")
+
+    if n < 702:
+        result = []
+        n += 1
+        while n > 0:
+            n, remainder = divmod(n - 1, 26)
+            result.append(chr(65 + remainder))
+        return "".join(reversed(result))
+
+    # Phase 3: Past 702 -> Letter + Number system
+    idx = n - 702
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    max_per_letter = 9
+
+    letter_idx = idx // max_per_letter
+    num_idx = (idx % max_per_letter) + 1
+
+    letter = letters[letter_idx % 26]
+    cycle = (letter_idx // 26) + 1
+    if cycle > 1:
+        return f"{letter}{num_idx}{cycle}"
+    return f"{letter}{num_idx}"
+
 def get_combination(index):
     """
     Retrieves a specific combination based on its zero-based index.
@@ -613,7 +659,6 @@ def cluster_results_to_csv(clusteringStorage):
 
     cluster_df.to_csv(f"{clusteringStorage}/cluster_info(80).csv", index=False)
 
-# WE should be clustering the RNAs and DNAs seperately from the PROTEINS
 def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
     """
     Separates protein and RNA/DNA sequences from a SEQRES file and performs clustering for each group independently.
@@ -635,6 +680,9 @@ def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
     - Generates a PDB list file and a SEQRES file for each group if the corresponding files do not already exist.
     - Skips clustering for groups that contain no sequences.
     - Existing PDB list and SEQRES files are preserved and are not overwritten.
+
+    WHAT TO DO
+    Create some sort of mapping system which detects when an entity is conflicting types, and if it is, save it as struct1 : [ent, ent], struct2 : [ent, ent]
     """
     pdbIDs = get_attributes_seqres(seqres_file, attribute="PDBID")
     MOL = get_attributes_seqres(seqres_file, attribute="MOL")
@@ -700,7 +748,7 @@ def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
 
     print("\nRNA/DNA and protein clustering stages completed.")
 
-def resolve_polymeric_chain_concatenations(master_molID_class_list, project_dir):
+def resolve_polymeric_chain_concatenations(master_molID_class_list, molIDConversion_list, project_dir, n):
     """
     Resolves polymeric chain concatenations file by file, checks for
     polymer/non-polymer chain ID overlaps with user confirmation, and writes
@@ -725,6 +773,15 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list, project_dir)
     # 1. FINDING POLYMER AND NON-POLYMER ENTITIES
     polymers = set()
     nonpolymers = set()
+    chain_entity_info = {}
+
+    # Creating chain_entity_info = {ENTITY1 : 3} <- chain count
+    for molIDConversion in molIDConversion_list:
+        molIDConversion.check_for_completeness()
+        if not molIDConversion.complete:
+            chain_count = int(molIDConversion.occur)
+            entity_name = str(molIDConversion.molID)
+            chain_entity_info[entity_name] = chain_count
 
     for i in master_molID_class_list:
         for entid in i.entity_type_map:
@@ -787,7 +844,64 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list, project_dir)
             for molID_class in file_molID_objs:
                 molID_class.check_for_concatenations()
 
-    #4. FINDING POTENTIAL POLYMERIC AND NON-POLYMERIC CONCATENATIONS
+        # 4. LOG CONFLICTING POLYMER / NON-POLYMER ENTITY TYPES (NON-INTRUSIVE)
+        conflicting_entities = polymers & nonpolymers
+
+        if conflicting_entities:
+            conflict_log_path = f"{project_dir}/conflicting_entity_types.txt"
+            structure_to_conflicts = defaultdict(list)
+            seen_pairs = set()
+
+            # Collect chain IDs already used per file so fresh labels don't collide
+            used_chains_by_file = defaultdict(set)
+            for m in master_molID_class_list:
+                used_chains_by_file[m.file_name].update(m.chID_newchID_map.values())
+
+            for molID_class in master_molID_class_list:
+                struct_path = molID_class.file_name
+                for ent_id, ent_name in molID_class.entity_name_map.items():
+                    if ent_name not in conflicting_entities:
+                        continue
+
+                    pair = (struct_path, ent_name)
+                    if pair not in seen_pairs:
+                        seen_pairs.add(pair)
+                        structure_to_conflicts[struct_path].append(ent_name)
+
+                    # If this specific occurrence in the structure is non-polymer,
+                    # assign a fresh chain label across its chains in this structure
+                    if molID_class.entity_type_map.get(ent_id) != 'polymer':
+                        old_chains = molID_class.molID_chID.get(ent_name, [])
+                        if old_chains:
+                            label = get_label(n)
+                            n += 1
+                            while label in used_chains_by_file[struct_path]:
+                                label = get_label(n)
+                                n += 1
+
+                            for ch in old_chains:
+                                print(molID_class.chID_newchID_map[ch])
+                                molID_class.chID_newchID_map[ch] = label
+                                print(molID_class.chID_newchID_map[ch])
+                            used_chains_by_file[struct_path].add(label)
+
+            with open(conflict_log_path, "w") as log_f:
+                log_f.write(
+                    "The following structures contain entities with conflicting polymer and "
+                    "non-polymer classifications across the dataset:\n"
+                    "structure_path,conflicting_entities\n"
+                )
+                for struct_path in sorted(structure_to_conflicts.keys()):
+                    ents_str = ", ".join(structure_to_conflicts[struct_path])
+                    log_f.write(f"{struct_path},[{ents_str}]\n")
+
+            print(
+                f"WARNING: Detected {len(conflicting_entities)} entity name(s) with conflicting "
+                f"polymer/non-polymer types. Updated non-polymer chains in affected structures and "
+                f"logged details to '{conflict_log_path}'."
+            )
+
+    #5. FINDING POTENTIAL POLYMERIC AND NON-POLYMERIC CONCATENATIONS
     # Note: this would only ever occur if the user enters their own input file
     for molID_class in master_molID_class_list:
         molID_class.check_for_concatenations()
@@ -846,7 +960,7 @@ def resolve_polymeric_chain_concatenations(master_molID_class_list, project_dir)
             print("Returning to the main menu...")
             return master_molID_class_list, True
 
-    #5. WRITING INPUT FILE WITH UPDATED CHAINS (this is purely for keeping track of changes)
+    #6. WRITING INPUT FILE WITH UPDATED CHAINS (this is purely for keeping track of changes)
     max_chains_per_entity = {}
     duplicate_entities = []
     entity_file_mappings = defaultdict(list)
@@ -1087,52 +1201,6 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
     None
     """
 
-    def get_label(n: int) -> str:
-        """
-        Generates a unique chain label based on a numerical index.
-
-        Labels are generated sequentially using uppercase letters (A-Z), followed
-        by combinations of uppercase letters (AA-ZZ). For indices beyond 701,
-        labels are generated using a combination of uppercase letters and numbers.
-
-        Parameters
-        ----------
-        n (int): Non-negative numerical index used to generate the chain label.
-                 Each unique index corresponds to a different chain label.
-
-        Returns
-        -------
-        str: Generated chain label corresponding to the supplied numerical index.
-
-        Raises
-        ------
-        ValueError: If the supplied index is negative.
-        """
-        if n < 0:
-            raise ValueError("Input must be a non-negative integer.")
-
-        if n < 702:
-            result = []
-            n += 1
-            while n > 0:
-                n, remainder = divmod(n - 1, 26)
-                result.append(chr(65 + remainder))
-            return "".join(reversed(result))
-
-        # Phase 3: Past 702 -> Letter + Number system
-        idx = n - 702
-        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        max_per_letter = 9
-
-        letter_idx = idx // max_per_letter
-        num_idx = (idx % max_per_letter) + 1
-
-        letter = letters[letter_idx % 26]
-        cycle = (letter_idx // 26) + 1
-        if cycle > 1:
-            return f"{letter}{num_idx}{cycle}"
-        return f"{letter}{num_idx}"
-
     # 1. INITIALIZATION & DATA EXTRACTION
     clustering_directory = f"{project_dir}/clustering_storage/"
     chain_entity_info = {}
@@ -1255,6 +1323,7 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
             final_chain_set[entity_name] = [label] * count
 
     final_chain_set = dict(sorted(final_chain_set.items())) #Sorting by entity name
+
     # 6. FILE WRITING
     output_file_path = f"{project_dir}/input_file.txt"
     if os.path.exists(output_file_path):
@@ -1262,12 +1331,15 @@ def generate_chain_assignments(current_list, master_molID_class_list, cluster_pd
         if overwrite not in ('y', 'yes'):
             print(f"Kept existing mapping at {output_file_path}")
             return
+
     with open(output_file_path, "w") as f:
         for key, val_list in final_chain_set.items():
             joined_values = ",".join(val_list)
             f.write(f"{key}:{joined_values}\n")
 
     print(f"\nWritten input file to {project_dir}/input_file.txt\n")
+
+    return n
 
 def run_clustering_pipeline(filelist, project_dir, seqres_file):
     """

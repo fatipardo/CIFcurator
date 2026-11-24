@@ -90,6 +90,7 @@ MolID_ChainID_dict_of_lists = molidutils.CreateMasterUniqueMolIDinitialChainIDsL
 input_menu = ""
 input_menu_complete = ""
 final_menu=""
+returned_label = 0
 
 while(input_menu != "QUIT"):
     if (input_menu_complete == "1"):
@@ -116,14 +117,17 @@ while(input_menu != "QUIT"):
     elif (input_menu == "3"):
         molIDConversion_list = molidutils.add_user_conversion(molIDConversion_list)
     elif (input_menu == "4"):
-        final_chain_set = cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list,
+        returned_label = cifcluster.generate_chain_assignments(molIDConversion_list, master_molID_class_list,
                                                                 cluster_pdbchids, outlier_case_entries, projdir)
+        if returned_label is not None:
+            current_label = returned_label
+
     elif (input_menu == "5"):
         if (input_menu_complete == "1"):
             master_molID_class_list = molidutils.update_masterlist(master_molID_class_list, molIDConversion_list)
             count_problems = molidutils.problem_counter(master_molID_class_list)
             if (count_problems != 0):
-                master_molID_class_list, returned_to_menu = cifcluster.resolve_polymeric_chain_concatenations(master_molID_class_list, projdir)
+                master_molID_class_list, returned_to_menu = cifcluster.resolve_polymeric_chain_concatenations(master_molID_class_list, molIDConversion_list, projdir, returned_label)
                 if returned_to_menu:
                     input_menu_complete = molidutils.check_complete(molIDConversion_list)
                     continue
