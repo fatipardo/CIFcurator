@@ -135,10 +135,10 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
             if i % 2 == 0:
                 meta_data_parts = line.split()
 
-                pdb_id = meta_data_parts[0].split('_') # >PDB_0000100D_A -> [>PDB, 0000100D, A]
-                pdb_id = (pdb_id[0][1:] + "_" + pdb_id[1]).upper()# PDB_0000100D
+                pdb_id_chid_components = meta_data_parts[0].rsplit("_", 1) # >>pdb_0000100d_A -> ['>pdb_0000100d', 'A']
+                pdb_id = pdb_id[0][1:].upper()# PDB_0000100D
                 mol_id = meta_data_parts[1].strip()
-                chid = meta_data_parts[0].split('_')[2]
+                chid = pdb_id_chid_components[1]
                 pdb_chid = pdb_id + '_' + chid
                 entity_name = ' '.join(meta_data_parts[3:]).replace("'", "").replace(":", "")
 
@@ -276,13 +276,13 @@ def entry_dict_seqres(seqres_file, pdb_id_list=None):
     with open(seqres_file, 'r') as file:
         for meta_line, sequence_line in zip(file, file):
             # Here we capitalize everything in pdb_chid except for the chain id
-            pdbchid_label_fasta = meta_line.split()[0][1:]
+            pdbchid_label_fasta = meta_data_parts[0][1:].rsplit("_", 1)
 
-            pdb_id = pdbchid_label_fasta[:12].upper()
+            pdb_id = pdbchid_label_fasta[0].upper()
             if allowed_ids is not None and pdb_id not in allowed_ids:
                 continue
 
-            ch_id = pdbchid_label_fasta.split('_')[2]
+            ch_id = pdbchid_label_fasta[1]
             pdb_chid = pdb_id + '_' + ch_id
 
             # We obtain all other components in our metaline (e.g mol, length, entity name)
