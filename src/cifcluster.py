@@ -100,7 +100,7 @@ def mapping_sequences_count(file_path):
 
     return info_dict
 
-def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
+def get_attributes_seqres(file_path, attribute='PDBID_CHID', user_pdbid=None):
     """
     Extracts specified attributes (e.g., PDB ID, chain ID, sequence, or entity label)
     from a SEQRES FASTA-like file.
@@ -119,7 +119,7 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
             - 'HEADER'       : returns meta-data line
             - 'SEQUENCE'     : the sequence
 
-    cif(str, optional): A specific PDB ID to filter results. If provided, only entries with this PDB ID are included.
+    user_pdbid(str, optional): A specific PDB ID to filter results. If provided, only entries with this PDB ID are included.
 
     Returns
     -------
@@ -127,7 +127,7 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
     """
     attribute_list = []
     attribute = attribute.upper()
-    pdb_id_filter = cif.upper()[:12] if cif else None
+    user_pdbid = user_pdbid.upper() if user_pdbid else None
 
     with open(file_path, 'r') as seqres:
         for i, line in enumerate(seqres):
@@ -136,13 +136,13 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
                 meta_data_parts = line.split()
 
                 pdb_id_chid_components = meta_data_parts[0].rsplit("_", 1) # >>pdb_0000100d_A -> ['>pdb_0000100d', 'A']
-                pdb_id = pdb_id[0][1:].upper()# PDB_0000100D
+                pdb_id = pdb_id_chid_components[0][1:].upper()# PDB_0000100D
                 mol_id = meta_data_parts[1].strip()
                 chid = pdb_id_chid_components[1]
                 pdb_chid = pdb_id + '_' + chid
                 entity_name = ' '.join(meta_data_parts[3:]).replace("'", "").replace(":", "")
 
-                if pdb_id_filter and pdb_id != pdb_id_filter:
+                if user_pdbid and pdb_id != user_pdbid:
                     continue
 
                 elif attribute == "HEADER":
@@ -166,7 +166,7 @@ def get_attributes_seqres(file_path, attribute='PDBID_CHID', cif=None):
             elif i % 2 == 1:
                 sequence = line.strip().upper()
 
-                if pdb_id_filter and pdb_id != pdb_id_filter:
+                if user_pdbid and pdb_id != user_pdbid:
                     continue
 
                 if attribute == 'SEQUENCE':
@@ -276,7 +276,7 @@ def entry_dict_seqres(seqres_file, pdb_id_list=None):
     with open(seqres_file, 'r') as file:
         for meta_line, sequence_line in zip(file, file):
             # Here we capitalize everything in pdb_chid except for the chain id
-            pdbchid_label_fasta = meta_data_parts[0][1:].rsplit("_", 1)
+            pdbchid_label_fasta = meta_line.split()[0][1:].rsplit("_", 1)
 
             pdb_id = pdbchid_label_fasta[0].upper()
             if allowed_ids is not None and pdb_id not in allowed_ids:
@@ -402,7 +402,7 @@ def writing_entity_FASTA(clustering_directory, seqres_dict, pdb_id_list):
     """
     # seqres_dict dictionary of the big seqres
     pdb_ids = set(pdb_id_list)
-    matching_labels = [label for label in seqres_dict if label[:12] in pdb_ids]
+    matching_labels = [label for label in seqres_dict if label.rsplit("_", 1)[0] in pdb_ids]
     entityFasta = f'sub_seqres.txt'
     with open(f'{clustering_directory}/{entityFasta}', 'w') as file:
         for label in matching_labels:
