@@ -1212,7 +1212,8 @@ class TestResolvePolymericChainConcatenations(unittest.TestCase):
                                  molid_chid, {}, {})
         molid.check_for_concatenations()
         with tempfile.TemporaryDirectory() as project_dir, quiet():
-            (resolved,), returned_to_menu = cifcluster.resolve_polymeric_chain_concatenations([molid], project_dir)
+            (resolved,), returned_to_menu = cifcluster.resolve_polymeric_chain_concatenations(
+                [molid], [], project_dir, 0)
         self.assertFalse(returned_to_menu)
         self.assertIs(resolved, molid)
         return molid
