@@ -106,9 +106,13 @@ for iseq in range(len(sequences)):
     print('{0} {1}'.format(metadata[iseq].strip(), sequences[iseq].strip()))
 
 cifcurator_io.check_project(projdir=projdir, level='raw_bank')
-pdbids = pdbutils.get_idset_from_metadata(metadata)
+pdb_metadata = [
+    m for m in metadata
+    if not m.lstrip(">").split()[0].rsplit("_", 1)[0].upper().startswith("AF-")
+]
+pdbids = pdbutils.get_idset_from_metadata(pdb_metadata)
 print('Downloading the biological assemblies of {0} PDB entries to {1}/raw_bank ...'.format(len(pdbids), projdir))
-pdbutils.download_pdb_from_metadata(metadata, projdir=projdir)
+pdbutils.download_pdb_from_metadata(pdb_metadata, projdir=projdir)
 
 if args.csm:
     csm_keyword = args.csm_keyword if args.csm_keyword is not None else keyword
