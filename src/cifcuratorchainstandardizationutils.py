@@ -340,10 +340,11 @@ def align_to_std_seq_and_save_to_disk(Structure_Sequences, Standard_Sequences, s
                 print(chid_seq_map_len)
                 std_chid_list = []
                 test_list_list= {}
+                # NOV2026: one progress line per chain ("Chain B: 2 of 5 done") instead of the whole list of chains
+                # already completed, which made the log grow with the square of the number of chains (GBs for 800 chains)
+                n_std_chid = len([c for c in Standard_Sequences if c not in ignore_chid])
                 for std_chid in Standard_Sequences:
                     if std_chid not in ignore_chid: # Standard_Sequences is the dictionary with the {chain IDs:sequences} from the reference structure
-                        print("Now I am working on this chain:")
-                        print(std_chid)
                         std_chid_list.append(std_chid)
 
                         structchid_score_map = {}
@@ -373,8 +374,7 @@ def align_to_std_seq_and_save_to_disk(Structure_Sequences, Standard_Sequences, s
                     #if std_chid not in ignore_chid: # we don't want to have any of the ignored chains 0_0
                         test_list_list[std_chid] = structchid_score_map
 
-                        print("Chains already completed:")
-                        print(std_chid_list)
+                        print("Chain {0}: {1} of {2} done".format(std_chid, len(std_chid_list), n_std_chid))
 
                 ######
                 #  In this section we re-structure the data we collected in previous step. In previous step we filled in a
@@ -734,14 +734,13 @@ def align_to_standard_seq(Structure_Sequences, Standard_Sequences, structid_list
                 print(chid_seq_map_len)
                 std_chid_list = []
                 test_list_list= {}
+                # NOV2026: one progress line per chain instead of test_list_list and std_chid_list, printed whole after
+                # every chain (the log grew with the square of the number of chains). The scores are still printed
+                # below, sorted (test_list_list_sortkey2).
+                print("Chains to ignore: {0}".format(ignore_chid))
+                n_std_chid = len([c for c in Standard_Sequences if c not in ignore_chid])
                 for std_chid in Standard_Sequences:
                     if std_chid not in ignore_chid: # Standard_Sequences is the dictionary with the {chain IDs:sequences} from the reference structure
-                        print("this is std_chid:")
-                        print(std_chid)
-
-                        print("IGNORE IGNORE IGNORE:")
-                        print(ignore_chid)
-
                         std_chid_list.append(std_chid)
 
                         structchid_score_map = {}
@@ -773,10 +772,7 @@ def align_to_standard_seq(Structure_Sequences, Standard_Sequences, structid_list
                     #if std_chid not in ignore_chid: # we don't want to have any of the ignored chains 0_0
                         test_list_list[std_chid]= structchid_score_map
 
-                        print("test_list_list:")
-                        print(test_list_list)
-                        print("std_chid_list:")
-                        print(std_chid_list)
+                        print("Chain {0}: {1} of {2} done".format(std_chid, len(std_chid_list), n_std_chid))
 
 
 

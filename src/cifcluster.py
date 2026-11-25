@@ -1,0 +1,1392 @@
+import os
+import shutil
+import subprocess
+import pandas as pd
+import csv
+import string
+from collections import defaultdict
+
+# ------------------ CLUSTERING ---------------------
+def mapping_sequences_count(file_path):
+    """
+    Analyze sequence and entity frequencies in a FASTA file.
+
+    This function reads sequence and entity annotations from a FASTA file using
+    `get_attributes_seqres`, then computes several frequency-based summaries:
+
+    - The most frequent sequence in the file.
+    - The most frequent entity associated with that top sequence.
+    - All unique sequences, sorted from most to least frequent.
+    - All unique entities, sorted from most to least frequent.
+    - The frequency count of the top sequence.
+
+    Parameters
+    ----------
+    file_path(str): Path to the FASTA file
+
+    Returns
+    -------
+    dict
+        A dictionary containing:
+
+        - **"UNIQUE_ENTITIES_SORTED"** : list of str
+          All unique entity labels sorted by descending frequency.
+
+        - **"UNIQUE_SEQUENCES_SORTED"** : list of str
+          All unique sequences sorted by descending frequency.
+
+        - **"TOP_ENTITY"** : str
+          The entity most frequently associated with the top sequence.
+
+        - **"TOP_SEQUENCE"** : str
+          The most frequent sequence in the file.
+
+        - **"FREQUENCY_OF_TOP_SEQUENCE"** : int
+          Number of occurrences of the top sequence.
+
+        - **"ENTITY_TO_SEQUENCES"** : dict
+          Mapping of unique entities to their corresponding sets of sequences.
+
+        - **"PDB_ENTRIES"** : list
+          List of PDB chain IDs extracted from the file.
+
+        - **"PDB_ENTRY_TO_ENTITY"** : dict
+          Mapping from PDB chain IDs to entity labels.
+
+        - **"PDB_ENTRY_TO_SEQUENCE"** : dict
+          Mapping from PDB chain IDs to sequences.
+
+    """
+    # Returns of list of sequences and entities from FASTA file
+    sequences = get_attributes_seqres(file_path, attribute='SEQUENCE')
+    entities = get_attributes_seqres(file_path, attribute='ENTITY_LABEL')
+    pdbchid_entity = get_attributes_seqres(file_path, attribute='PDBID_CHID')
+    
+    sequence_counts = {}
+    entity_counts = {}
+    entity_to_sequences = {}
+    # creates dictionary where = sequence/entity : occurrence_count
+    for seq, ent in zip(sequences, entities):
+        entity_to_sequences.setdefault(ent, set()).add(seq)
+        sequence_counts[seq] = sequence_counts.get(seq, 0) + 1
+        entity_counts[ent] = entity_counts.get(ent, 0) + 1
+
+    # I order the dictionaries to have the most frequent to least frequent entity/sequence first
+    temp_sorted_unique_entities = sorted(entity_counts.items(), key=lambda x: x[1], reverse=True)
+    sorted_unique_entities = [ent[0] for ent in temp_sorted_unique_entities]
+
+    temp_sorted_unique_sequences = sorted(sequence_counts.items(), key=lambda x: x[1], reverse=True)
+    sorted_unique_sequences = [seq[0] for seq in temp_sorted_unique_sequences]
+
+    most_freq_seq = max(sequence_counts, key=sequence_counts.get)
+    frequency_of_top_seq = sequence_counts[most_freq_seq]
+
+    # I create dictionary mapping the top entity to its corresponding sequence
+    top_ent_4_top_seq = {}
+    for seq, ent in zip(sequences, entities):
+        if seq == most_freq_seq:
+            top_ent_4_top_seq[ent] = top_ent_4_top_seq.get(ent, 0) + 1
+            
+    most_freq_entity = max(top_ent_4_top_seq, key=top_ent_4_top_seq.get)
+    info_dict = {"UNIQUE_ENTITIES_SORTED":sorted_unique_entities,
+                 "UNIQUE_SEQUENCES_SORTED":sorted_unique_sequences,
+                 "TOP_ENTITY":most_freq_entity,
+                 "TOP_SEQUENCE":most_freq_seq,
+                 "FREQUENCY_OF_TOP_SEQUENCE":frequency_of_top_seq,
+                 "ENTITY_TO_SEQUENCES":entity_to_sequences,
+                 "PDB_ENTRIES":pdbchid_entity,
+                 "PDB_ENTRY_TO_ENTITY": dict(zip(pdbchid_entity, entities)),
+                 "PDB_ENTRY_TO_SEQUENCE": dict(zip(pdbchid_entity, sequences))}
+
+    return info_dict
+
+def get_attributes_seqres(file_path, attribute='PDBID_CHID', user_pdbid=None):
+    """
+    Extracts specified attributes (e.g., PDB ID, chain ID, sequence, or entity label)
+    from a SEQRES FASTA-like file.
+
+    Parameters
+    ----------
+    file_path(str): Path to the input seqres.txt file.
+
+    attribute(str, optional): Metadata attribute to extract.
+        Options are:
+            - 'ENTITY_LABEL' : the entity name
+            - 'MOL'          : the molecular identifier
+            - 'PDBID'        : the PDB ID only
+            - 'CHID'         : the chain ID only
+            - 'PDBID_CHID'   : PDB ID and chain ID (default)
+            - 'HEADER'       : returns meta-data line
+            - 'SEQUENCE'     : the sequence
+
+    user_pdbid(str, optional): A specific PDB ID to filter results. If provided, only entries with this PDB ID are included.
+
+    Returns
+    -------
+    attribute_list(list): A list of extracted attributes or sequences, depending on the `attribute` specified.
+    """
+    attribute_list = []
+    attribute = attribute.upper()
+    user_pdbid = user_pdbid.upper() if user_pdbid else None
+
+    with open(file_path, 'r') as seqres:
+        for i, line in enumerate(seqres):
+
+            if i % 2 == 0:
+                meta_data_parts = line.split()
+
+                pdb_id_chid_components = meta_data_parts[0].rsplit("_", 1) # >>pdb_0000100d_A -> ['>pdb_0000100d', 'A']
+                pdb_id = pdb_id_chid_components[0][1:].upper()# PDB_0000100D
+                mol_id = meta_data_parts[1].strip()
+                chid = pdb_id_chid_components[1]
+                pdb_chid = pdb_id + '_' + chid
+                entity_name = ' '.join(meta_data_parts[3:]).replace("'", "").replace(":", "")
+
+                if user_pdbid and pdb_id != user_pdbid:
+                    continue
+
+                elif attribute == "HEADER":
+                    attribute_list.append(line.strip())
+
+                elif attribute == 'ENTITY_LABEL':
+                    attribute_list.append(entity_name)
+
+                elif attribute == 'MOL':
+                    attribute_list.append(mol_id)
+
+                elif attribute == 'CHID':
+                    attribute_list.append(chid)
+
+                elif attribute == 'PDBID_CHID':
+                    attribute_list.append(pdb_chid)
+
+                elif attribute == 'PDBID':
+                    attribute_list.append(pdb_id)
+
+            elif i % 2 == 1:
+                sequence = line.strip().upper()
+
+                if user_pdbid and pdb_id != user_pdbid:
+                    continue
+
+                if attribute == 'SEQUENCE':
+                    attribute_list.append(sequence)
+
+    return attribute_list
+
+def get_label(n: int) -> str:
+    """
+    Generates a unique chain label based on a numerical index.
+
+    Labels are generated sequentially using uppercase letters (A-Z), followed
+    by combinations of uppercase letters (AA-ZZ). For indices beyond 701,
+    labels are generated using a combination of uppercase letters and numbers.
+
+    Parameters
+    ----------
+    n (int): Non-negative numerical index used to generate the chain label.
+             Each unique index corresponds to a different chain label.
+
+    Returns
+    -------
+    str: Generated chain label corresponding to the supplied numerical index.
+
+    Raises
+    ------
+    ValueError: If the supplied index is negative.
+    """
+    if n < 0:
+        raise ValueError("Input must be a non-negative integer.")
+
+    if n < 702:
+        result = []
+        n += 1
+        while n > 0:
+            n, remainder = divmod(n - 1, 26)
+            result.append(chr(65 + remainder))
+        return "".join(reversed(result))
+
+    # Phase 3: Past 702 -> Letter + Number system
+    idx = n - 702
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    max_per_letter = 9
+
+    letter_idx = idx // max_per_letter
+    num_idx = (idx % max_per_letter) + 1
+
+    letter = letters[letter_idx % 26]
+    cycle = (letter_idx // 26) + 1
+    if cycle > 1:
+        return f"{letter}{num_idx}{cycle}"
+    return f"{letter}{num_idx}"
+
+def get_combination(index):
+    """
+    Retrieves a specific combination based on its zero-based index.
+    Index 0 returns an empty string.
+    """
+    if index < 0:
+        raise IndexError("Index out of range")
+
+    if index == 0:
+        return ''
+
+    alphabet = list(string.ascii_lowercase[1:])
+    base = len(alphabet)
+
+    length = 1
+
+    while index > base ** length:
+        index -= base ** length
+        length += 1
+
+    result = ""
+
+    for power in range(length - 1, -1, -1):
+        divisor = base ** power
+        digit = (index - 1) // divisor
+        index = (index - 1) % divisor + 1
+        result += alphabet[digit]
+
+    return result
+
+def entry_dict_seqres(seqres_file, pdb_id_list=None):
+    """
+    Builds a dictionary from SEQRES, mapping each PDB ID and chain ID to its corresponding metadata line and sequence.
+
+    Parameters
+    ----------
+    seqres_file(str): Path to the input seqres.txt file.
+
+    pdb_id_list(list, optional): List of PDB IDs to keep while reading. If None,
+                                 all entries in ``seqres_file`` are included.
+
+    Returns
+    -------
+    entry_dict(dict): A dictionary where:
+            - Keys are strings in the format "PDBID_CHID" (e.g., "1ABC_A").
+            - Values are lists containing: [metadata_line (str), sequence_line (str)].
+
+    Notes
+    -----
+    - All metadata components except the chain ID are capitalized for consistency.
+    """
+    entry_dict = {}
+    allowed_ids = {pid.upper() for pid in pdb_id_list} if pdb_id_list is not None else None
+    with open(seqres_file, 'r') as file:
+        for meta_line, sequence_line in zip(file, file):
+            # Here we capitalize everything in pdb_chid except for the chain id
+            pdbchid_label_fasta = meta_line.split()[0][1:].rsplit("_", 1)
+
+            pdb_id = pdbchid_label_fasta[0].upper()
+            if allowed_ids is not None and pdb_id not in allowed_ids:
+                continue
+
+            ch_id = pdbchid_label_fasta[1]
+            pdb_chid = pdb_id + '_' + ch_id
+
+            # We obtain all other components in our metaline (e.g mol, length, entity name)
+            rest_line_cap = [word.upper() for word in meta_line.split()[1:]]
+
+            # We construct our metaline with our capitalized components
+            meta_line = '>' + pdb_chid + ' ' + ' '.join(rest_line_cap) + '\n'
+
+            # We make our dictionary from our capitalzed seqres components
+            entry_dict[pdb_chid] = [meta_line, sequence_line.upper()]
+
+    return entry_dict
+
+def map_unique(list1, list2):
+    """
+    Creates a mapping from each unique element in list2 to a set of corresponding elements from list1.
+
+    Parameters
+    -----------
+    list1(list): A list of values to be grouped.
+    list2(list): A list of keys which will be used for grouping.
+
+    Returns
+    --------
+    values_map(dict) or None: Dictionary with list2 elements as keys, and list1 elements as values,
+                              or None if list lengths do not match.
+    """
+    zip_values = zip(list1, list2)
+    values_map = {}
+
+    if len(list1) != len(list2):
+        return print('Both lists must be of equal lengths.')
+
+    else:
+        for value1, value2 in zip_values:
+            if value2 not in values_map:
+                values_map[value2] = set()
+            values_map[value2].add(value1)
+
+    return values_map
+
+def cleaning_clusters(clusteringStorage):
+    """
+    Goes through the clusters.tsv file and gets unique instances of cluster representatives, and maps them to
+    their cluster members.
+
+    Parameters
+    -----------
+    clusteringStorage(str): path to directory containing clusters.tsv file.
+
+    Returns
+    --------
+    cluster_dict(dict): dictionary with unique cluster representatives as keys and grouped members as values.
+    """
+    # fix indexing, extract whole thing
+    with open(f"{clusteringStorage}/clusters.tsv", 'r') as file:
+        label_list = []
+        representatives = []
+        members = []
+        for i, line in enumerate(file):
+            label_list.append(line)
+        for label in label_list:
+            representatives.append(label.split()[0])
+            members.append(label.split()[1])
+
+        cluster_dict = map_unique(members, representatives)
+    return cluster_dict
+
+def writing_cluster_FASTA(seqres_dict, cluster_dict, clusterFastaStoragePath):
+    """
+    Created FASTA files out of the clusters made using MMSeqs2.
+
+    Parameters
+    ----------
+    seqres_dict(dict): dictionary made out of our seqres file utilizing entry_dict_seqres function
+
+    cluster_dict(dict): dictionary built off of the clusters.tsv having used the cleaning_clusters function
+
+    clusterFastaStoragePath(str): directory where outputted files will be stored
+
+    Returns
+    -------
+    None
+    """
+    for filename in os.listdir(clusterFastaStoragePath):
+        if filename.endswith('_cluster.txt'):
+            os.remove(os.path.join(clusterFastaStoragePath, filename))
+    cluster_num = 1
+    for key in sorted(cluster_dict.keys()):
+        with open(f'{clusterFastaStoragePath}/{cluster_num}_{key}_cluster.txt', 'w') as file:
+            entries_list = sorted(cluster_dict[key])
+            for entry in entries_list:
+                lines_to_write = seqres_dict.get(entry)
+                if lines_to_write:
+                    file.writelines(lines_to_write)
+                else:
+                    print(f'{entry} not in seqres.txt')
+        cluster_num += 1
+
+def writing_entity_FASTA(clustering_directory, seqres_dict, pdb_id_list):
+    """
+    Writes a FASTA file with entries from seqres_dict related to the PDB IDs of interest.
+
+    NOTE: the txt file containing PDB IDs must be in the main directory we are working from
+
+    Parameters
+    ----------
+    clustering_directory(str): The main clustering directory where sub_seqres.txt will be stored.
+    seqres_dict(dict): A dictionary produced by 'entry_dict_seqres()' where:
+            - Keys are strings in the format "PDBID_CHID" (e.g., "1ABC_A").
+            - Values are lists containing: [metadata_line (str), sequence_line (str)].
+    pdb_id_list(list): List of PDB IDs to filter and write out.
+
+    Returns
+    -------
+    None
+    """
+    # seqres_dict dictionary of the big seqres
+    pdb_ids = set(pdb_id_list)
+    matching_labels = [label for label in seqres_dict if label.rsplit("_", 1)[0] in pdb_ids]
+    entityFasta = f'sub_seqres.txt'
+    with open(f'{clustering_directory}/{entityFasta}', 'w') as file:
+        for label in matching_labels:
+            lines_to_write = seqres_dict[label]
+            if lines_to_write:
+                file.writelines(lines_to_write)
+            else: print(f'{label} not in seqres.txt')
+
+def writing_labels_file(clusters_directory_path, output_directory):
+    """
+    Creates a text file where each line contains the name of a cluster file, the most frequent
+    entity name for that cluster (along with their counts), and the unique entity names within
+    that cluster (also with its count).
+
+    Parameters
+    ----------
+    clusters_directory_path(str): path to directory containing the cluster FASTA files
+
+    output_directory(str): directory where the newly created txt file will be stored
+
+    Returns
+    -------
+    None
+    """
+
+    def obtaining_label_counts(file_path):
+        """
+        Returns a dictionary, with the keys being the unique entity names in a FASTA file
+        and the values being the counts of those keys in the file.
+
+        Parameters
+        -----------
+        file_path : path to a FASTA file
+
+        Returns
+        --------
+        Dictionary with keys being entity name and values being its number of instances
+        """
+        label_list = get_attributes_seqres(file_path, 'ENTITY_LABEL')
+        unique_label_list = set(label_list)
+        counts = []
+
+        for unique_label in unique_label_list:
+            count = 0
+            for label in label_list:
+                if label == unique_label:
+                    count += 1
+            counts.append(count)
+        return dict(zip(unique_label_list, counts))
+
+    def obtain_high_label(label_dict):
+        """
+        Takes dictionary from obtaining_label_counts and returns a dictionary containing the key and value of
+        the most present entity label in the FASTA file
+
+        Parameters
+        ----------
+        label_dict(dict): Dictionary produced by `obtaining_label_counts()`, where keys are entity
+        labels and values are their occurrence counts.
+
+        Returns
+        -------
+        dict: A dictionary containing a single key-value pair: {most_frequent_label: count}
+
+              If the input dictionary contains one or zero entries, an empty dictionary is returned.
+        """
+        if len(label_dict.keys()) > 1:
+            label_dict = dict(sorted(label_dict.items(), key=lambda item: item[1], reverse=True))
+            return {list(label_dict.keys())[0]: label_dict[list(label_dict.keys())[0]]}
+        else:
+            return {}
+
+    lines_to_write = []
+    structure_count = 0
+
+    # This chunk removes a file we dont need.
+    ds_store_path = os.path.join(clusters_directory_path, '.DS_Store')
+    if os.path.exists(ds_store_path):
+        os.remove(ds_store_path)
+
+    for file in os.listdir(clusters_directory_path):
+
+        full_path = os.path.join(clusters_directory_path, file)
+
+        # This line counts how main chains are in the current file its reading,
+        # and adds up that total to its count. It repeats that for every file in the cluster
+        structure_count += len(get_attributes_seqres(full_path, 'chid'))
+        test_dict = obtaining_label_counts(full_path)
+        high_label = obtain_high_label(test_dict)
+
+        if high_label:
+            line = [f'{file}', f'{high_label}', f'{test_dict}']
+        else:
+            line = [f'{file}', f'{test_dict}']
+
+        lines_to_write.append(line)
+
+    with open(f'{output_directory}/unique_label_names.txt', 'w') as curr_file:
+        curr_file.writelines(f'TOTAL CHIANS : {structure_count}\n\n')
+        for line in lines_to_write:
+            curr_file.writelines(line)
+            curr_file.writelines('\n')
+
+
+def clustering(clusteringStorage, seqres_file):
+    """
+    Runs MMseqs2 database creation, clustering, and TSV conversion, then cleans up temporary files.
+
+    Parameters
+    ----------
+    clusteringStorage(str): Path to the directory where clustering outputs and temporary files are managed.
+    seqres_file(str): Path to the input SEQRES sequence file.
+
+    Returns
+    -------
+    None
+    """
+
+    def _cleanup_files(prefixes: list[str], tmp_dir: str) -> None:
+        """Helper to remove MMseqs database files and temporary directory."""
+        # Remove directory
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+
+        # Remove generated database files matching prefixes
+        current_dir = os.listdir(".")
+        for filename in current_dir:
+            for prefix in prefixes:
+                if filename.startswith(prefix):
+                    try:
+                        os.remove(filename)
+                    except OSError:
+                        pass
+
+    seqres_file = os.path.abspath(seqres_file)
+    seqres_dict = entry_dict_seqres(seqres_file)
+
+    original_dir = os.getcwd()
+    db_prefix = "pdbDB"
+    cluster_prefix = "clusterDB"
+    tmp_dir = "tmp"
+    output_tsv = "clusters.tsv"
+
+    output_directory = f"{clusteringStorage}"
+
+    print("cwd:", os.getcwd())
+    print("entity_seqres:", seqres_file)
+    print("absolute:", os.path.abspath(seqres_file))
+    print("exists:", os.path.exists(seqres_file))
+
+    os.chdir(output_directory)
+    try:
+
+        # 1. Create DB
+        print("Creating MMseqs2 database...")
+        subprocess.run(
+            ["mmseqs", "createdb", seqres_file, db_prefix], check=True
+        )
+
+        # 2. Cluster
+        print("Clustering sequences...")
+        subprocess.run(
+            [
+                "mmseqs",
+                "cluster",
+                db_prefix,
+                cluster_prefix,
+                tmp_dir,
+                "--min-seq-id",
+                "0.30",
+                "--cluster-mode",
+                "2",
+                "--cov-mode",
+                "1",
+                "-c",
+                "0.8",
+            ],
+            check=True,
+        )
+
+        # 3. Create TSV
+        print("Generating TSV output...")
+        subprocess.run(
+            [
+                "mmseqs",
+                "createtsv",
+                db_prefix,
+                db_prefix,
+                cluster_prefix,
+                output_tsv,
+            ],
+            check=True,
+        )
+
+    finally:
+        # 4. Clean up temporary files safely
+        print("Cleaning up intermediate files...")
+        _cleanup_files([db_prefix, cluster_prefix], tmp_dir)
+        os.chdir(original_dir)
+
+    print(f"Clustering complete! Output saved to {output_tsv}")
+
+    print("Cleaning up data...")
+
+    clusterFastaStoragePath = f'{clusteringStorage}cluster_files/'
+
+    cluster_dict = cleaning_clusters(clusteringStorage)
+    writing_cluster_FASTA(seqres_dict, cluster_dict, clusterFastaStoragePath)
+    writing_labels_file(clusterFastaStoragePath, clusteringStorage)
+    cluster_results_to_csv(clusteringStorage)
+
+def cluster_results_to_csv(clusteringStorage):
+    """
+    Organizes the data generated from clusters and 'mapping_sequences_count()' into a readable CSV format
+
+    Parameters
+    ----------
+    clusteringStorage(str): Path to the main directory hosting the cluster files and output results.
+
+    Returns
+    -------
+    None
+    """
+    clusterFastaStoragePath = f'{clusteringStorage}/cluster_files/'
+    cluster_files = os.listdir(clusterFastaStoragePath)
+
+    col1 = []  # Cluster
+    col2 = []  # Top Macromolecule
+    col3 = []  # Top Sequence
+    col4 = []  # Frequency of that sequence
+    col5 = []  # Unique entity names of that cluster
+    col6 = []  # unique sequences of that cluster
+    col7 = []  # entities to their sequences
+
+    for file in cluster_files:
+        file_path = f"{clusterFastaStoragePath}{file}"
+        cluster_attributes = mapping_sequences_count(file_path)
+
+        col1.append(file)
+        col2.append(cluster_attributes["TOP_ENTITY"])
+        col3.append(cluster_attributes["TOP_SEQUENCE"])
+        col4.append(cluster_attributes["FREQUENCY_OF_TOP_SEQUENCE"])
+        col5.append(cluster_attributes["UNIQUE_ENTITIES_SORTED"])
+        col6.append(cluster_attributes["UNIQUE_SEQUENCES_SORTED"])
+        col7.append(cluster_attributes["ENTITY_TO_SEQUENCES"])
+
+    cluster_df = pd.DataFrame({"Cluster": col1,
+                                "Top_Entity": col2,
+                                "Top_Sequence": col3,
+                                "Sequence_Frequency": col4,
+                                "Unique_Entities": col5,
+                                "Unique_Sequences": col6,
+                               "Entity_to_sequence": col7})
+
+    cluster_df.to_csv(f"{clusteringStorage}/cluster_info(80).csv", index=False)
+
+def processing_RNA_PROTEIN_cluster(clustering_directory, seqres_file):
+    """
+    Separates protein and RNA/DNA sequences from a SEQRES file and performs clustering for each group independently.
+
+    Parameters
+    ----------
+    clustering_directory (str): Path to the directory where clustering output directories are stored.
+    seqres_file (str): Path to the input SEQRES file containing PDB IDs, molecule types, metadata headers, and sequences.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    - Sequences are classified as RNA/DNA if their molecule type is "MOL:NA"; all other sequences are classified as proteins.
+    - Protein and RNA/DNA sequences are processed and clustered separately.
+    - Creates a separate clustering storage directory and cluster FASTA directory for each non-empty group.
+    - Generates a PDB list file and a SEQRES file for each group if the corresponding files do not already exist.
+    - Skips clustering for groups that contain no sequences.
+    - Existing PDB list and SEQRES files are preserved and are not overwritten.
+
+    WHAT TO DO
+    Create some sort of mapping system which detects when an entity is conflicting types, and if it is, save it as struct1 : [ent, ent], struct2 : [ent, ent]
+    """
+    pdbIDs = get_attributes_seqres(seqres_file, attribute="PDBID")
+    MOL = get_attributes_seqres(seqres_file, attribute="MOL")
+    SEQUENCE = get_attributes_seqres(seqres_file, attribute="SEQUENCE")
+    meta_data_line = get_attributes_seqres(seqres_file, attribute="HEADER")
+
+    rna_pdbs = []
+    rna_head = []
+    rna_seq = []
+
+    protein_pdbs = []
+    protein_head = []
+    protein_seq = []
+
+    # Separate RNA/DNA and protein sequences
+    for pdbid, header, mol, sequence in zip(
+        pdbIDs, meta_data_line, MOL, SEQUENCE
+    ):
+        if mol == "MOL:NA":
+            rna_pdbs.append(pdbid)
+            rna_head.append(header)
+            rna_seq.append(sequence)
+        else:
+            protein_pdbs.append(pdbid)
+            protein_head.append(header)
+            protein_seq.append(sequence)
+
+    groups = [
+        ("PROTEIN", protein_pdbs, protein_head, protein_seq),
+        ("RNA_DNA", rna_pdbs, rna_head, rna_seq),
+    ]
+
+    for org, pdbs, heads, seqs in groups:
+        # Skip empty groups
+        if not seqs:
+            stale_storage = os.path.join(clustering_directory, f"{org}_clustering_storage")
+            if os.path.isdir(stale_storage):
+                shutil.rmtree(stale_storage)
+            print(f"Skipping {org}: no sequences found.")
+            continue
+
+        print(f"\nProcessing {org}: {len(seqs)} sequences")
+
+        clusteringStorage = f"{clustering_directory}/{org}_clustering_storage/"
+        os.makedirs(clusteringStorage, exist_ok=True)
+
+        clusterFastaStoragePath = f"{clusteringStorage}cluster_files/"
+        os.makedirs(clusterFastaStoragePath, exist_ok=True)
+
+        # Write sequence file if it doesn't exist
+        seqres_path = os.path.join(
+            clusteringStorage, f"{org}_seqres.txt"
+        )
+
+        with open(seqres_path, "w") as f:
+            for head, seq in zip(heads, seqs):
+                f.write(f"{head}\n{seq}\n")
+
+        # Run clustering only for non-empty groups
+        print(f"Cluster Stage: {org}")
+
+        clustering(clusteringStorage, seqres_path)
+
+    print("\nRNA/DNA and protein clustering stages completed.")
+
+def resolve_polymeric_chain_concatenations(master_molID_class_list, molIDConversion_list, project_dir, n):
+    """
+    Resolves polymeric chain concatenations file by file, checks for
+    polymer/non-polymer chain ID overlaps with user confirmation, and writes
+    updated mapping and diagnostic files.
+
+    Parameters
+    ----------
+    master_molID_class_list (list): A list of MolID class objects representing
+                                    entity and chain information across CIF files.
+    project_dir (str): Path to the project directory where ``updated_input_file.txt``
+                       and optional diagnostic logs (``polymer_nonpolymer_collisions.txt``
+                       and ``per_file_entity_chain_differences.txt``) are written.
+
+    Returns
+    -------
+    tuple of (list, bool)
+        - Updated ``master_molID_class_list`` with modified chain ID mappings.
+        - ``returned_to_menu`` flag (``True`` if the user declined overlapping
+          polymer/non-polymer concatenations and returned to the main menu,
+          ``False`` otherwise).
+    """
+    # 1. FINDING POLYMER AND NON-POLYMER ENTITIES
+    polymers = set()
+    nonpolymers = set()
+    chain_entity_info = {}
+
+    # Creating chain_entity_info = {ENTITY1 : 3} <- chain count
+    for molIDConversion in molIDConversion_list:
+        molIDConversion.check_for_completeness()
+        if not molIDConversion.complete:
+            chain_count = int(molIDConversion.occur)
+            entity_name = str(molIDConversion.molID)
+            chain_entity_info[entity_name] = chain_count
+
+    for i in master_molID_class_list:
+        for entid in i.entity_type_map:
+            entity_name = i.entity_name_map[entid]
+            entity_type = i.entity_type_map[entid]
+
+            if entity_type == 'polymer': polymers.add(entity_name)
+            else: nonpolymers.add(entity_name)
+
+    # 2. FINDING POLYMERIC CONCATENATIONS
+    # Structure: file_dict[file_name] = list of tuples (new_chain, concat_idx, molID, chID)
+    file_dict = defaultdict(list)
+
+    for molID_class in master_molID_class_list:
+        file_name = molID_class.file_name
+        for molID, chID_list in molID_class.molID_chID.items():
+            if molID in polymers: # If the entity is a polymer
+                for chID in chID_list:  # For each chain assigned to the entity
+                    if chID in molID_class.concat_order:  # if the chain is part of a concat
+                        curr_chain = molID_class.chID_newchID_map[chID] # The new chain as of now
+                        concat_idx = molID_class.concat_order[chID]  # concat order
+                        # Keep track of old chain (chID) or molID if needed for mapping
+                        file_dict[file_name].append((curr_chain, concat_idx, molID, chID, molID_class))
+
+    # 3. RE-NAMING POLYMERIC CHAINS AFFECTED BY CONCATENATION
+    renamed_count = 0
+    if file_dict:
+        for file_name in sorted(file_dict.keys()):
+            sorted_file_entries = sorted(file_dict[file_name], key=lambda x: (x[0], x[1]))
+
+            file_molID_objs = [m for m in master_molID_class_list if m.file_name == file_name]
+            used_chains = set()
+            for m in file_molID_objs:
+                used_chains.update(m.chID_newchID_map.values())
+
+            nonpolymer_destinations = {
+                m.chID_newchID_map[old]
+                for m in file_molID_objs
+                for entity, old_chains in m.molID_chID.items()
+                if entity not in polymers
+                for old in old_chains
+            }
+
+            for curr_chain, concat_idx, molID, chID, molID_class in sorted_file_entries:
+                if int(concat_idx) == 1 and curr_chain not in nonpolymer_destinations:
+                    new_chain = curr_chain
+                else:
+                    suffix_idx = max(1, int(concat_idx) - 1)
+                    new_chain = f"{curr_chain}{get_combination(suffix_idx)}"
+                    while new_chain in used_chains:
+                        suffix_idx += 1
+                        new_chain = f"{curr_chain}{get_combination(suffix_idx)}"
+
+                if new_chain != curr_chain:
+                    renamed_count += 1
+
+                used_chains.add(new_chain)
+                molID_class.chID_newchID_map[chID] = new_chain
+
+            for molID_class in file_molID_objs:
+                molID_class.check_for_concatenations()
+
+        # 4. LOG CONFLICTING POLYMER / NON-POLYMER ENTITY TYPES (NON-INTRUSIVE)
+        conflicting_entities = polymers & nonpolymers
+
+        if conflicting_entities:
+            conflict_log_path = f"{project_dir}/conflicting_entity_types.txt"
+            structure_to_conflicts = defaultdict(list)
+            seen_pairs = set()
+
+            # Collect chain IDs already used per file so fresh labels don't collide
+            used_chains_by_file = defaultdict(set)
+            for m in master_molID_class_list:
+                used_chains_by_file[m.file_name].update(m.chID_newchID_map.values())
+
+            for molID_class in master_molID_class_list:
+                struct_path = molID_class.file_name
+                for ent_id, ent_name in molID_class.entity_name_map.items():
+                    if ent_name not in conflicting_entities:
+                        continue
+
+                    pair = (struct_path, ent_name)
+                    if pair not in seen_pairs:
+                        seen_pairs.add(pair)
+                        structure_to_conflicts[struct_path].append(ent_name)
+
+                    # If this specific occurrence in the structure is non-polymer,
+                    # assign a fresh chain label across its chains in this structure
+                    if molID_class.entity_type_map.get(ent_id) != 'polymer':
+                        old_chains = molID_class.molID_chID.get(ent_name, [])
+                        if old_chains:
+                            label = get_label(n)
+                            n += 1
+                            while label in used_chains_by_file[struct_path]:
+                                label = get_label(n)
+                                n += 1
+
+                            for ch in old_chains:
+                                print(molID_class.chID_newchID_map[ch])
+                                molID_class.chID_newchID_map[ch] = label
+                                print(molID_class.chID_newchID_map[ch])
+                            used_chains_by_file[struct_path].add(label)
+
+            with open(conflict_log_path, "w") as log_f:
+                log_f.write(
+                    "The following structures contain entities with conflicting polymer and "
+                    "non-polymer classifications across the dataset:\n"
+                    "structure_path,conflicting_entities\n"
+                )
+                for struct_path in sorted(structure_to_conflicts.keys()):
+                    ents_str = ", ".join(structure_to_conflicts[struct_path])
+                    log_f.write(f"{struct_path},[{ents_str}]\n")
+
+            print(
+                f"WARNING: Detected {len(conflicting_entities)} entity name(s) with conflicting "
+                f"polymer/non-polymer types. Updated non-polymer chains in affected structures and "
+                f"logged details to '{conflict_log_path}'."
+            )
+
+    #5. FINDING POTENTIAL POLYMERIC AND NON-POLYMERIC CONCATENATIONS
+    # Note: this would only ever occur if the user enters their own input file
+    for molID_class in master_molID_class_list:
+        molID_class.check_for_concatenations()
+
+    polymer_chain_sources = defaultdict(list)
+    seen_polymer_sources = set()
+    for m in master_molID_class_list:
+        file_name = m.file_name
+        for entity, chains in m.molID_chID.items():
+            if entity in polymers:
+                for ch in chains:
+                    if ch in m.chID_newchID_map:
+                        dest_chain = m.chID_newchID_map[ch]
+                        key = (file_name, dest_chain, entity, ch)
+                        if key not in seen_polymer_sources:
+                            seen_polymer_sources.add(key)
+                            polymer_chain_sources[(file_name, dest_chain)].append((entity, ch))
+
+    overlaps = []
+    seen_overlaps = set()
+    for m in master_molID_class_list:
+        file_name = m.file_name
+        for entity, chains in m.molID_chID.items():
+            if entity not in polymers:
+                for ch in chains:
+                    dest_chain = m.chID_newchID_map.get(ch)
+                    if (file_name, dest_chain) in polymer_chain_sources:
+                        overlap_key = (file_name, entity, ch, dest_chain)
+                        if overlap_key not in seen_overlaps:
+                            seen_overlaps.add(overlap_key)
+                            overlaps.append(overlap_key)
+
+    # IF POLY AND NONPOLY CONCATENATIONS ARE FOUND, USERS CAN EITHER ACCEPT THEM OR GO BACK
+    if overlaps:  # IF there are concatenations between polymers and non-polymeris
+        concat_answer = input(
+            "WARNING: If you are using a custom input file, polymeric and "
+            "non-polymeric chains may share a chain ID and concatenate. "
+            "Would you like to accept this behavior?(y/n)\n"
+        ).lower().strip()
+        if concat_answer == "y":
+            collision_log_path = f"{project_dir}/polymer_nonpolymer_collisions.txt"
+            with open(collision_log_path, "w") as f:
+                f.write(
+                    "structure_path:polymeric_entity:polymeric_chain:nonpolymeric_entity:nonpolymeric_chain:shared_chain\n")
+                for file_name, entity, ch, dest_chain in overlaps:
+                    for poly_ent, poly_ch in polymer_chain_sources[(file_name, dest_chain)]:
+                        line = f"{file_name}:{poly_ent}:{poly_ch}:{entity}:{ch}:{dest_chain}\n"
+                        f.write(line)
+
+            print(
+                f"Logged potential polymer and non-polymer chain collisions to "
+                f"'{collision_log_path}' for your review.\n"
+            )
+
+        else:
+            print("Returning to the main menu...")
+            return master_molID_class_list, True
+
+    #6. WRITING INPUT FILE WITH UPDATED CHAINS (this is purely for keeping track of changes)
+    max_chains_per_entity = {}
+    duplicate_entities = []
+    entity_file_mappings = defaultdict(list)
+    seen_file_entity_map = set()
+
+    for molID_class in master_molID_class_list:
+        file_name = molID_class.file_name
+        for ent_id, ent_name in molID_class.entity_name_map.items():
+            old_chains = molID_class.molID_chID.get(ent_name, [])
+            updated_chains = [molID_class.chID_newchID_map[ch] for ch in old_chains]
+            if not updated_chains:
+                continue
+
+            entry_key = (ent_name, file_name, tuple(updated_chains))
+            if entry_key not in seen_file_entity_map:
+                seen_file_entity_map.add(entry_key)
+                entity_file_mappings[ent_name].append((file_name, updated_chains))
+
+            if ent_name in max_chains_per_entity:
+                duplicate_entities.append([ent_name])
+            if ent_name not in max_chains_per_entity or len(updated_chains) > len(max_chains_per_entity[ent_name]):
+                max_chains_per_entity[ent_name] = updated_chains
+
+    # Check if any entity has differing chain assignments across structures
+    differing_entities = {
+        ent_name: records
+        for ent_name, records in entity_file_mappings.items()
+        if any(chains != max_chains_per_entity[ent_name][:len(chains)] for _, chains in records)
+    }
+
+    with open(f"{project_dir}/updated_input_file.txt", "w") as out_f:
+        for ent_name in sorted(max_chains_per_entity.keys()):
+            chains_str = ",".join(max_chains_per_entity[ent_name])
+            out_f.write(f"{ent_name}:{chains_str}\n")
+
+    print(f"Resolved {renamed_count} polymeric chain collision(s) across {len(file_dict)} file(s). ")
+    print(f"Updated chain mapping saved to '{project_dir}/updated_input_file.txt'")
+
+
+    if differing_entities:
+        diff_log_path = f"{project_dir}/per_file_entity_chain_differences.txt"
+        with open(diff_log_path, "w") as diff_f:
+            diff_f.write(
+                "The following structures have differing chain assignments for the same entity "
+                "and could not all be represented in updated_input_file.txt:\n"
+                "structure_path,entity_name,chains\n"
+            )
+            for ent_name in sorted(differing_entities.keys()):
+                for file_name, chains in differing_entities[ent_name]:
+                    chains_formatted = ", ".join(chains)
+                    diff_f.write(f"{file_name}:{ent_name}:[{chains_formatted}]\n")
+
+        print(
+            f"WARNING: Found differing per-file chain assignments for {len(differing_entities)} "
+            f"entity(ies). Logged details to '{diff_log_path}'."
+        )
+
+    return master_molID_class_list, False
+
+def finding_problematic_cluster_results(clustering_directory):
+    """
+    Analyzes clustering results to identify duplicate entities or chains appearing across multiple clusters,
+    generating warning CSV tables and returning mapping dictionaries.
+
+    Parameters
+    ----------
+    clustering_directory (str): Path to the directory containing clustering storage results.
+
+    Returns
+    -------
+    tuple of (dict, dict)
+        - cluster_pdbchids: Mapping of cluster representatives to their members.
+        - outlier_case_entries: Mapping of PDB entries or outlier entities to associated issues/entities.
+    """
+    pdbchid = get_attributes_seqres(f"{clustering_directory}/sub_seqres.txt", attribute='PDBID_CHID')
+    entity_names = get_attributes_seqres(f"{clustering_directory}/sub_seqres.txt", attribute='ENTITY_LABEL')
+
+    pdb_entry_to_entity = dict(zip(pdbchid, entity_names))
+
+    directory_names = [f.name for f in os.scandir(clustering_directory) if f.is_dir()]
+    cluster_pdbchids = {}
+    pdb_entry_to_files = {}
+    entity_to_files = {}
+
+    # ==========================================
+    # 3. DIRECTORY & CLUSTER FILE PROCESSING
+    # ==========================================
+    for directory in directory_names:
+        cluster_rep = []
+        cluster_mem = []
+        cluster_file_path = f"{clustering_directory}/{directory}/clusters.tsv"
+
+        if os.path.exists(cluster_file_path):
+            with open(cluster_file_path, "r") as f:
+                reader = csv.reader(f, delimiter="\t")
+                for row in reader:
+                    if len(row) >= 2:
+                        cluster_rep.append(row[0])
+                        cluster_mem.append(row[1])
+
+        cluster_pdbchids.update(
+            map_unique(cluster_mem, cluster_rep))  # Its supposed to be cluster_rep : {mem1, mem2, mem3}
+
+        cluster_files_storage = f"{clustering_directory}/{directory}/cluster_files/"
+        if os.path.exists(cluster_files_storage):
+            for cluster_file in os.listdir(cluster_files_storage):
+                full_file_path = f"{cluster_files_storage}/{cluster_file}"
+                info = mapping_sequences_count(full_file_path)
+
+                for pdb_entry in info.get("PDB_ENTRIES", []):
+                    pdb_entry_to_files.setdefault(pdb_entry, []).append(full_file_path)
+
+                for entity in info.get("UNIQUE_ENTITIES_SORTED", []):
+                    entity_to_files.setdefault(entity, []).append(full_file_path)
+
+    pdb_entries_in_multiple_files = {
+        k: v for k, v in pdb_entry_to_files.items() if len(v) > 1
+    }
+
+    entities_in_multiple_files = {
+        k: v for k, v in entity_to_files.items() if len(v) > 1
+    }
+
+    # Maps pdb_id_chid -> set of associated entity names
+    # Using sets prevents entity names from being overwritten
+    outlier_case_entries = {}
+
+    warning_message_pdb_entries_multiple_files = set()
+
+    # Identify entities appearing in multiple cluster files
+    if entities_in_multiple_files:
+        for key, lst in entities_in_multiple_files.items():
+            for cluster_file in lst:
+
+                for entity, pdb_id in zip(
+                        get_attributes_seqres(cluster_file, attribute='ENTITY_LABEL'),
+                        get_attributes_seqres(cluster_file, attribute='PDBID_CHID')
+                ):
+                    if entity == key:
+                        outlier_case_entries.setdefault(pdb_id, set()).add(entity)
+
+    # Identify PDB chain IDs appearing in multiple cluster files
+    if pdb_entries_in_multiple_files:
+        for key in pdb_entries_in_multiple_files:
+            outlier_case_entries.setdefault(key, set()).add(
+                pdb_entry_to_entity[key]
+            )
+
+            warning_message_pdb_entries_multiple_files.add(pdb_entry_to_entity[key])
+
+    if pdb_entries_in_multiple_files:
+        pdbids = []
+        entities = []
+        chains = []
+        cluster_files = []
+
+        for label, cluster_lst in pdb_entries_in_multiple_files.items():
+            for cluster in cluster_lst:
+                pdbids.append(label[:12])
+                chains.append(label[13:])
+                entities.append(pdb_entry_to_entity[label])
+                cluster_files.append(cluster)
+
+        df = pd.DataFrame({"PDB ID":pdbids,
+                      "ENTITY":entities,
+                      "CHAIN":chains,
+                      "CLUSTER FILE PATH":cluster_files})
+
+        df.to_csv(f"{clustering_directory}/duplicate_entities_warning.csv", index=False)
+
+        print(f"WARNING: There were some entities that contained multiple chains that do not correspond to the same entity. "
+    f"We only assign one label type per entity, so one of the chains may be mislabeled in the input file. You can find the affected structures in the following table {clustering_directory}/duplicate_entities_warning.csv."
+              f"The table lists the PDB ID, entity ID, chain ID, and corresponding cluster file path for each affected entry.")
+
+    if entities_in_multiple_files:
+        entities = []
+        cluster_files = []
+
+        for entity, cluster_lst in entities_in_multiple_files.items():
+            for cluster in cluster_lst:
+                cluster_files.append(cluster)
+                entities.append(entity)
+
+        df = pd.DataFrame({"ENTITY": entities,
+                      "CLUSTER FILE PATH": cluster_files})
+
+        df.to_csv(f"{clustering_directory}/duplicate_entries_warning.csv", index=False)
+
+        print(
+            f"WARNING: There are chains of some entities that may be assigned different chain names in each cluster. "
+            "This is common when the dataset contains structures from multiple organisms. To keep one chain name for "
+            f"this entity across all clusters, edit the entity list. You can find the affected clusters in the table "
+            f"{clustering_directory}/duplicate_entries_warning.csv. "
+            "The table lists each affected entity and the cluster file paths in which it appears."
+        )
+
+
+    for warning_name, issues in (
+        ('duplicate_entities_warning.csv', pdb_entries_in_multiple_files),
+        ('duplicate_entries_warning.csv', entities_in_multiple_files),
+    ):
+        warning_path = os.path.join(clustering_directory, warning_name)
+        if not issues and os.path.isfile(warning_path):
+            os.remove(warning_path)
+
+    return cluster_pdbchids, outlier_case_entries
+
+
+def generate_chain_assignments(current_list, master_molID_class_list, cluster_pdbchids, outlier_case_entries, project_dir):
+    """
+    Generates consistent chain assignments for polymer and non-polymer entities
+    using sequence clustering results and structural entity information.
+
+    Identifies entities and PDB chain IDs appearing across multiple cluster files,
+    detects potential conflicts, and assigns chain labels while ensuring that
+    identical entities retain the same chain name across different PDB structures.
+    Entities not represented in the clustering results are assigned chain labels
+    through a fallback mechanism.
+
+    The final entity-to-chain mapping is alphabetically sorted and written to
+    an input text file.
+
+    Parameters
+    ----------
+    current_list (list): List of molID conversion objects containing entity
+                         identifiers, occurrence counts, and completeness information.
+    master_molID_class_list (list): List of molecular classification objects
+                                   containing structural entity information,
+                                   including entity names and entity types.
+    cluster_pdbchids (dict): Dictionary mapping cluster representatives to their member PDB chain IDs.
+    outlier_case_entries (dict): Dictionary mapping outlier PDB entries/entities to their associated labels.
+    project_dir (str): Path to the project directory containing the clustering
+                       storage directory and where the final input file will
+                       be written.
+
+    Returns
+    -------
+    None
+    """
+
+    # 1. INITIALIZATION & DATA EXTRACTION
+    clustering_directory = f"{project_dir}/clustering_storage/"
+    chain_entity_info = {}
+    polymers = {}
+    nonpolymers = {}
+
+    # Creating chain_entity_info = {ENTITY1 : 3} <- chain count
+    for molIDConversion in current_list:
+        molIDConversion.check_for_completeness()
+        if not molIDConversion.complete:
+            chain_count = int(molIDConversion.occur)
+            entity_name = str(molIDConversion.molID)
+            chain_entity_info[entity_name] = chain_count
+
+    # Populating polymers{} and nonpolymers{}
+    for i in master_molID_class_list:
+        for entid in i.entity_type_map:
+            entity_name = i.entity_name_map[entid]
+            entity_type = i.entity_type_map[entid]
+
+            if entity_type == 'polymer': polymers[entity_name] = 'polymer'
+            else: nonpolymers[entity_name] = 'nonpolymer'
+
+    # 2. SEQUENCE & CLUSTER MAPPINGS
+    pdbchid = get_attributes_seqres(f"{clustering_directory}/sub_seqres.txt", attribute='PDBID_CHID')
+    entity_names = get_attributes_seqres(f"{clustering_directory}/sub_seqres.txt", attribute='ENTITY_LABEL')
+
+    pdb_entry_to_entity = dict(zip(pdbchid, entity_names)) # pdbid_chid : ent1
+
+    # 3. CHAIN LABEL ASSIGNMENT (based on clustering)
+    n = 0
+    chain_labels = {}  # Maps pdb_chid -> assigned chain letter
+
+    # 3a. Assign ONE label per non-outlier cluster
+    for rep, mem_list in cluster_pdbchids.items():
+
+        non_outlier_members = [mem for mem in mem_list if mem not in outlier_case_entries]
+
+        if non_outlier_members:
+            cluster_label = get_label(n)
+            # This is the chain that will represent the entire cluster group
+
+            for mem in non_outlier_members:
+                chain_labels[mem] = cluster_label
+                # We assign each cluster member with that chain
+
+            n += 1  # After we are done with the cluster, we
+                    # increment to change chain label for the next cluster
+
+    # 3b. Assign labels to unique outlier entities
+    entity_chain_labels = {} # ENT1 : chain
+    for pass_type in ("polymer", "nonpolymer"):
+        for entry, entities in outlier_case_entries.items(): # {PDB_CHID : [ENT1, ENT2]}
+            for entity in entities:
+                is_polymer = entity in polymers
+                if (pass_type == "polymer" and not is_polymer) or (
+                        pass_type == "nonpolymer" and is_polymer
+                ):
+                    continue
+
+                # Assign a new label only if this entity has not been encountered
+                if entity not in entity_chain_labels:
+                    entity_chain_labels[entity] = get_label(n)
+                    n += 1
+
+                # Reuse the entity's existing label for every PDB chain ID
+                if entry not in chain_labels:
+                    chain_labels[entry] = entity_chain_labels[entity] # pdb_chid : chain
+
+    final_chain_set = {}
+
+    # 4. BUILDING FINAL ENTITY-TO-CHAINS MAPPING
+    entity_to_assigned_chains = {} # ENT1 : chain
+    for entry, chain in chain_labels.items():
+
+        # Working with the entries that aren't outliers
+        if entry not in outlier_case_entries and entry in pdb_entry_to_entity:
+            entity_name = pdb_entry_to_entity[entry]
+            entity_to_assigned_chains.setdefault(entity_name, chain)
+
+    # Now we work with the outliers
+    for entity, chain in entity_chain_labels.items():
+        entity_to_assigned_chains.setdefault(entity, chain)
+
+    # Splitting the full chain assignment by polymer and nonpolymers to
+    # ensure that polymers get assigned the chains first
+
+    # We're building the full polymer chain assignments -> polymer_ent : [A, Ab..]
+    for entity_name, base_chain in entity_to_assigned_chains.items():
+        if entity_name in polymers:
+            count = chain_entity_info.get(entity_name, 1)
+            final_chain_set[entity_name] = [
+                f"{base_chain}{get_combination(i)}"
+                for i in range(count)
+            ]
+
+    # We're building the non-polymer chain assignments -> nonpolymer_ent : [A, A..]
+    for entity_name, base_chain in entity_to_assigned_chains.items():
+        if entity_name not in polymers:
+            count = chain_entity_info.get(entity_name, 1)
+            final_chain_set[entity_name] = [base_chain] * count
+
+
+    # 5. Fallback for any unclustered entities (polymers and non-polymers)
+    for entity_name in polymers:
+        if entity_name not in final_chain_set and entity_name in chain_entity_info:
+            count = chain_entity_info[entity_name]
+            label = get_label(n)
+            n += 1
+            final_chain_set[entity_name] = [
+                f"{label}{get_combination(i)}"
+                for i in range(count)
+            ]
+
+    for entity_name in nonpolymers:
+        if entity_name not in final_chain_set and entity_name in chain_entity_info:
+            count = chain_entity_info[entity_name]
+            label = get_label(n)
+            n += 1
+            final_chain_set[entity_name] = [label] * count
+
+    final_chain_set = dict(sorted(final_chain_set.items())) #Sorting by entity name
+
+    # 6. FILE WRITING
+    output_file_path = f"{project_dir}/input_file.txt"
+    if os.path.exists(output_file_path):
+        overwrite = input(f"{output_file_path} already exists. Overwrite it? (y/N): ").strip().lower()
+        if overwrite not in ('y', 'yes'):
+            print(f"Kept existing mapping at {output_file_path}")
+            return
+
+    with open(output_file_path, "w") as f:
+        for key, val_list in final_chain_set.items():
+            joined_values = ",".join(val_list)
+            f.write(f"{key}:{joined_values}\n")
+
+    print(f"\nWritten input file to {project_dir}/input_file.txt\n")
+
+    return n
+
+def run_clustering_pipeline(filelist, project_dir, seqres_file):
+    """
+    Runs the initial processing pipeline for preparing structural data
+    for sequence clustering.
+
+    Creates the clustering storage directory, extracts sequence information
+    from the SEQRES file, identifies the PDB structures of interest from the
+    supplied file list, and generates a filtered sub-seqres file containing
+    only the selected structures.
+
+    The filtered sequence data is then passed to the RNA and protein
+    clustering procedure.
+
+    Parameters
+    ----------
+    filelist (list): List of paths to the structural files (e.g. CIF files)
+                     that will be processed. PDB identifiers are extracted
+                     from the file names.
+    project_dir (str): Path to the main project directory containing the
+                       seqres.txt file and where the clustering storage
+                       directory will be created.
+
+    Returns
+    -------
+    None
+    """
+    clustering_directory = f"{project_dir}/clustering_storage/"
+
+    try:
+        os.mkdir(clustering_directory)
+        print(f"Directory '{clustering_directory}' created successfully.\n")
+
+    except FileExistsError:
+        print(f"Directory '{clustering_directory}' already exists.")
+
+    pdb_id_list = []
+    for file in filelist:
+        name = file.split('/')[-1] # pdb_00007qom+01.cif
+        pdb_id = os.path.splitext(name)[0].split('+')[0].upper()
+        pdb_id_list.append(pdb_id)
+
+    seqres_dict = entry_dict_seqres(seqres_file, pdb_id_list)
+
+
+
+    writing_entity_FASTA(clustering_directory, seqres_dict, pdb_id_list)
+    del seqres_dict
+
+    processing_RNA_PROTEIN_cluster(clustering_directory, f"{clustering_directory}/sub_seqres.txt")

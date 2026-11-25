@@ -63,7 +63,8 @@ input_menu_check = ""
 while(input_menu != "QUIT"):
     print("CIFcurator Residue Number Standardization Menu",
           "    After checking all structures are loaded, select option 1 to proceed:",
-          "    1) Proceed to multiple alignment menu",
+          "    1) Proceed to multiple alignment menu"
+          "    OR type 'QUIT' to exit",
           sep="\n")
     if(input_menu_check == "1"):
         print("    2) View conversion template")

@@ -11,7 +11,7 @@ import string
 # INITIALIZE STEPS #
 ####################
 
-def pdb_to_structurelists(filelist):
+def pdb_to_structurelists(filelist, looking_at_csm=False):
     """
     Iterates through a list CIF(s) and retrieves structure IDs, chain IDs, and maps chain IDs to their sequences,
     and maps chain IDs to their residue numbers.
@@ -45,7 +45,6 @@ def pdb_to_structurelists(filelist):
         print("Reading:" + ' ' + my_file + "  (" + str(N) + " of " + str(len(filelist)) + ")")
         struct = FastMMCIFParser(auth_residues=False,QUIET=1).get_structure(str(my_file), my_file)
         structid_list.append(struct.get_id())
-        chid_seq_map = {}
         chid_resinum_map = {}
         # Only written for structures with only one model in them
         for chain in struct[0]:
@@ -55,13 +54,8 @@ def pdb_to_structurelists(filelist):
             resinum_list = []
             seq = ""
             for residue in chain:
-                #print("printing residue ids: "+ str(residue.get_id()[2]))
                 resinum_list.append(residue.get_id()[1])
-                #chid_resinum_map[chain.get_id()].append(residue.get_id()[1])
-                # For each residue we extract both the residue number and the associated "letter" (pdbx_PDB_ins_code)
                 chid_resinum_map[chain.get_id()].append(str(residue.get_id()[1])+str(residue.get_id()[2])) #FAPA 17 oct 2024
-                #resinum_list.append(residue.id()[1])
-                #chid_resinum_map[chain.get_id()].append(residue.id()[1])
                 seq += ResnConvert(residue.get_resname())
             Structure_Sequences[key] = seq
             # chid_list is a master list of all chainIDs used
@@ -69,7 +63,6 @@ def pdb_to_structurelists(filelist):
         ChID_ResiNum_Vector.append(chid_resinum_map)
     chid_set = set(chid_list)
     chid_list = sorted(list(chid_set))
-    #print(ChID_ResiNum_Vector)
     return Structure_Sequences, ChID_ResiNum_Vector, structid_list, chid_list
 
 #########################################
@@ -142,7 +135,8 @@ def perform_multiple_alignment(Structure_Sequences, ChID_ResiNum_Vector, structi
               "    1) Show list of chains to be standardized",
               "    2) Remove chain IDs from list of chains to be standardized",
               "    3) Input file of chain IDs to remove from list of chains to be standardized",
-              "    4) Perform multiple alignments",
+              "    4) Perform multiple alignments"
+              "    OR type 'QUIT' to exit",
               sep="\n")
         input_submenu = input('Option Number: ')
         if (input_submenu == "1"):
@@ -330,8 +324,7 @@ def conversiontemplate_to_pdb(filelist, Structure_ConversionTemplate, target_dir
                 for line in myfile:
                     if (line[0:4] == "ATOM") or (line[0:6] == "HETATM"):
                         # Chains outside map should not exist but just in case
-                        line_split = line.strip()
-                        line_split = line.split()
+                        line_split = line.strip().split()
                         key = line_split[17] + "_" + str(line_split[15])
                         if key in conversion_template:
                             newline = line_split[0] + " " + line_split[1] + " " + line_split[2] + " " + line_split[3] + " " + line_split[4] + " " + line_split[5] + " " + line_split[6] + " " + line_split[7] + " " + line_split[8] + " " + line_split[9] + " " + line_split[10] + " " + line_split[11] + " " + line_split[12] + " " + line_split[13] + " " + line_split[14] + " " + str(conversion_template[key]) + " " + line_split[16] + " " + line_split[17] + " " + line_split[18] + " " + line_split[19] + "\n"
